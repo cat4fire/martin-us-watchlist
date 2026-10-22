@@ -9,8 +9,10 @@ assert manifest['fetched']
 loaded={}
 for name,preset in manifest['modes'].items():
     assert len({r['symbol'] for r in preset['current']})==len(preset['current'])
+    current_ids={id(r) for r in preset['current']}
     for row in preset['current']+preset['history']:
         chart=row.get('chart')
+        if id(row) in current_ids:assert chart,f'{name} {row["symbol"]}: selected stock has no chart'
         if not chart:continue
         path=(root/chart).resolve()
         assert path.is_relative_to((root/'data/charts').resolve()) or path.is_relative_to((root/'data/chart-packs').resolve())

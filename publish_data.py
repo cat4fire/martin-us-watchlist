@@ -4,6 +4,7 @@ import datetime as dt
 import json
 import math
 import time
+from concurrent.futures import ThreadPoolExecutor,as_completed
 from pathlib import Path
 import sys
 from zoneinfo import ZoneInfo
@@ -15,6 +16,7 @@ from market_scan import load_universe
 from history_data import load_history,prepare,yahoo_symbol
 from entry_priority import assess_setup
 from candidate_history import record_candidates
+from incremental_history import update_history
 
 FIELDS=('symbol','ticker','security_name','group','close','change','market_cap_basic','Volatility.W','Value.Traded','average_volume_10d_calc','Value.Traded|1W','Perf.1M','premarket_change','scan_date','sector','history_last_seen','setup_status','setup_distance','setup_trigger','setup_invalidation','setup_risk','setup_asof','setup_reason','setup_tier','setup_sort_distance','chart')
 
@@ -39,7 +41,7 @@ def history_day(now=None):
     return now.date()+dt.timedelta(days=1) if (now.hour,now.minute)>=(16,15) else now.date()
 
 
-def build(report,cache,output,state,today=None,attempts=None):
+def build(report,cache,output,state,today=None,attempts=None,require_all=False):
     today=today or history_day()
     archive_path=state/'candidate_history.json'
     archive=record_candidates(archive_path,report['rows'],report['fetched'])
@@ -52,15 +54,20 @@ def build(report,cache,output,state,today=None,attempts=None):
         modes[mode]=dict(rule=rule,current=rows,history=list(archive.get(mode,{}).values()),missing=len(missing),rejected=rejected)
     charts={}
     assessments={}
+    chart_errors={}
     for symbol,security in securities.items():
         try:
             alias=yahoo_symbol(security)
             raw=json.loads((cache/'history'/f'{alias.encode().hex()}.json').read_text(encoding='utf-8'))
             if raw['symbol']!=alias:continue
-            rows=prepare(raw['rows'],today,display_days=None)
+            last_date=dt.date.fromisoformat(raw['rows'][-1]['date'])
+            validation_day=max(today,last_date+dt.timedelta(days=1))
+            if (validation_day-last_date).days>7:validation_day=last_date+dt.timedelta(days=1)
+            rows=prepare(raw['rows'],validation_day,display_days=None)
+            rows=[r for r in rows if r['date']<str(today)]
             if len(rows)<2:continue
             chart=dict(symbol=symbol,source=raw['source'],adjustment=raw['adjustment'],rows=rows)
-            chart['warning']='K线滞后于选股日期，请核对截止日' if security.get('scan_date','')[:10].count('-')==2 and rows[-1]['date']<security['scan_date'][:10] else ''
+            chart['warning']='历史缓存：K线截止日期早于最近完整交易日，请核对日期' if rows[-1]['date']<str((attempts or {}).get('required_date','')) else ''
             relative=f'data/charts/{symbol.encode().hex()}.json'
             write_json(output/relative,chart)
             charts[symbol]=relative
@@ -69,7 +76,12 @@ def build(report,cache,output,state,today=None,attempts=None):
             adr=assessment.get('setup_adr') or assessment.get('setup_adr20')
             if adr and assessment.get('setup_distance') is not None:assessment['setup_sort_distance']=assessment['setup_distance']/adr
             assessments[symbol]=assessment
-        except (OSError,ValueError,KeyError,TypeError):continue
+        except (OSError,ValueError,KeyError,TypeError,IndexError) as exc:
+            chart_errors[symbol]=str(exc)
+    missing_current=sorted({r['symbol'] for preset in modes.values() for r in preset['current'] if r['symbol'] not in charts})
+    write_json(state/'chart_errors.json',dict(missing_current=missing_current,details=chart_errors,downloads=(attempts or {}).get('errors',{})))
+    if require_all and missing_current:
+        raise RuntimeError(f'{len(missing_current)}只当前候选尚无有效日K，本次不替换线上网站；详见chart_errors.json：'+', '.join(missing_current[:20]))
     for mode,preset in modes.items():
         def project(row,historical=False):
             row=dict(row,history_last_seen=archive.get(mode,{}).get(row['symbol'],{}).get('history_last_seen'))
@@ -78,7 +90,7 @@ def build(report,cache,output,state,today=None,attempts=None):
                 row.update(setup_status='历史快照·需复核',setup_reason='历史入选价格和日期，非当前买点')
                 for key in ('setup_distance','setup_trigger','setup_invalidation','setup_risk','setup_asof'):row[key]=None
             else:
-                row.update(assessments.get(row['symbol'],dict(setup_status='未发布日K',setup_reason='本次尚无可用历史K线',setup_tier=9)))
+                row.update(assessments.get(row['symbol'],dict(setup_status='日K获取失败',setup_reason=(attempts or {}).get('errors',{}).get(row['symbol']) or chart_errors.get(row['symbol'],'缺少有效历史数据'),setup_tier=9)))
             return {key:row.get(key) for key in FIELDS}
         preset['current']=[project(r) for r in preset['current']]
         preset['history']=[project(r,True) for r in preset['history']]
@@ -90,22 +102,7 @@ def build(report,cache,output,state,today=None,attempts=None):
     return manifest
 
 
-def select_chart_batch(ordered,cached_symbols,cursor,limit):
-    if not ordered:return []
-    offset=cursor%len(ordered)
-    rotating=ordered[offset:]+ordered[:offset]
-    priority=[r for r in rotating if r['symbol'] in cached_symbols]
-    batch=[]
-    seen=set()
-    for row in priority[:limit//2]+rotating:
-        if row['symbol'] not in seen:
-            seen.add(row['symbol'])
-            batch.append(row)
-        if len(batch)>=limit:break
-    return batch
-
-
-def refresh(cache,output,state,max_charts=500):
+def refresh(cache,output,state,max_charts=0):
     # Reuse the shipped real chart files if a new runner has no Actions cache yet.
     def seeds():
         for path in (output/'data/charts').glob('*.json'):
@@ -127,33 +124,37 @@ def refresh(cache,output,state,max_charts=500):
     if not rows or len(rows)<len(universe)*.5:raise RuntimeError('行情覆盖异常，保留此前网站，不发布本次结果')
     report=dict(rows=rows,missing=missing,scope=len(universe),fetched=fetched)
     today=history_day()
-    # Prioritize Potent, then leading/premarket names; round-robin full candidate coverage across days.
-    groups=[screen(rows,m)[0] for m in ('Potent','Leader','Premarket')]
+    # Every current candidate, including the separately evaluated intraday preset.
+    groups=[screen(rows,m)[0] for m in RULES]
     ordered=[]
     seen=set()
     for i in range(max(map(len,groups),default=0)):
         for group in groups:
             if i<len(group) and group[i]['symbol'] not in seen:
                 seen.add(group[i]['symbol']);ordered.append(group[i])
-    cursor_path=state/'chart_cursor.json'
-    cursor=json.loads(cursor_path.read_text(encoding='utf-8')).get('cursor',0) if cursor_path.exists() else 0
-    # Refresh published candidates before adding missing charts, within a bounded free-service budget.
-    cached_symbols={r['symbol'] for r in ordered if (cache/'history'/f'{r["symbol"].replace(".","-").encode().hex()}.json').exists()}
-    batch=select_chart_batch(ordered,cached_symbols,cursor,max_charts)
-    failures=[];success=0
-    attempted=0
-    deadline=time.monotonic()+20*60
-    for security in batch:
-        if time.monotonic()>=deadline:break
-        attempted+=1
-        try:
-            payload=load_history(security,cache,today=today)
-            if payload.get('warning'):failures.append(security['symbol'])
-            else:success+=1
-        except Exception:failures.append(security['symbol'])
-    write_json(cursor_path,dict(cursor=cursor+max(1,attempted//2)))
+    required=max((r.get('completed',{}).get('scan_date','') for r in rows),default='') or str(today-dt.timedelta(days=1))
+    failures={};results={}
+    print(f'All-candidate update: {len(ordered)} unique symbols; required daily bar {required}',flush=True)
+    def one(security):
+        error=None
+        for attempt in range(2):
+            try:return update_history(security,cache,today,required)
+            except Exception as exc:
+                error=exc
+                if attempt==0:time.sleep(.5)
+        raise RuntimeError(str(error))
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        pending={pool.submit(one,r):r['symbol'] for r in ordered}
+        for future in as_completed(pending):
+            symbol=pending[future]
+            try:results[symbol]=future.result()
+            except Exception as exc:failures[symbol]=str(exc)
+            done=len(results)+len(failures)
+            if done%25==0 or done==len(ordered):print(f'History progress {done}/{len(ordered)}; available {len(results)}; errors {len(failures)}',flush=True)
+    summary=dict(limit='all',attempted=len(ordered),successful=len(results),failed=len(failures),required_date=required,errors=failures,cached=sum(v['status']=='cached' for v in results.values()),incremental=sum(v['status']=='incremental' for v in results.values()),initial=sum(v['status']=='initial' for v in results.values()))
+    write_json(state/'download_report.json',summary)
     write_json(cache/'martin_report.json',report)
-    result=build(report,cache,output,state,today,dict(limit=max_charts,attempted=attempted,successful=success,failed=len(failures),time_budget_reached=attempted<len(batch)))
+    result=build(report,cache,output,state,today,summary,require_all=True)
     print(json.dumps(dict(fetched=fetched,charts=result['chart_count'],counts={m:len(v['current']) for m,v in result['modes'].items()},chart_downloads=result['download_summary']),ensure_ascii=True))
 
 
@@ -163,9 +164,8 @@ if __name__=='__main__':
     parser.add_argument('--output',type=Path,default=BASE/'dist')
     parser.add_argument('--state',type=Path,default=BASE/'state')
     parser.add_argument('--refresh',action='store_true')
-    parser.add_argument('--max-charts',type=int,default=500)
+    parser.add_argument('--max-charts',type=int,default=0,help='Legacy argument accepted; all current candidates are always processed')
     args=parser.parse_args()
-    if not 1<=args.max_charts<=5000:parser.error('--max-charts must be between 1 and 5000')
     if args.refresh:refresh(args.cache,args.output,args.state,args.max_charts)
     else:
         report=json.loads((args.cache/'martin_report.json').read_text(encoding='utf-8'))
