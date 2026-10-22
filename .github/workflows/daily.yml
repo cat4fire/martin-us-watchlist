@@ -3,6 +3,11 @@ on:
   schedule:
     - cron: '40 23 * * *'
   workflow_dispatch:
+    inputs:
+      max_charts:
+        description: Maximum historical charts to attempt (1-5000)
+        type: number
+        default: 500
   push:
     branches: [main]
     paths-ignore: ['state/**', 'README.md']
@@ -36,7 +41,9 @@ jobs:
           restore-keys: market-data-
       - run: pip install -r requirements.txt
       - name: Refresh scan and bounded historical data
-        run: python publish_data.py --refresh --max-charts 120
+        env:
+          CHART_LIMIT: ${{ inputs.max_charts || '500' }}
+        run: python publish_data.py --refresh --max-charts "$CHART_LIMIT"
       - name: Check published data
         run: python verify_data.py
       - name: Persist candidate history
