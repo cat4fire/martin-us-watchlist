@@ -4,13 +4,13 @@ const columnDefinitions=[
  ['symbol','代码','交易所证券代码。'],['security_name','公司名称','数据源提供的证券名称。'],['group','均线组','Lead：EMA9>EMA21>EMA50；Lag相反；Mediocre：EMA21高于或低于另外两线。'],
  ['close','收盘 / 快照价','Potent使用完整日收盘；其余使用所发布扫描快照价格。不是实时行情。'],['change','涨跌 %','选股快照中的日涨跌百分比。'],['setup_status','辅助阶段','完整日K结构观察阶段，属于自定辅助规则，并非Martin本人公式。'],
  ['setup_distance','距突破位 %','（结构参考突破位÷完整日收盘−1）×100%。'],['setup_trigger','参考突破位','最新完整日高点，或仅按三日收紧识别时的三日最高价。'],['setup_invalidation','参考失效位','最新完整日低点，或仅按三日收紧识别时的三日最低价。不是固定止损指令。'],['setup_risk','参考风险 %','（突破位−失效位）÷突破位×100%，未含滑点和费用。'],
- ['market_cap_basic','市值 / 亿美元','Potent上一日市值可能按当前股数和历史价格回推估算。'],['Volatility.W','周波动 %','数据源周波动率，不等于ADR20；Potent门槛>3.5%。'],['Value.Traded','日成交额 / 百万','Potent为完整日成交额；其余模式为当日扫描快照。'],['average_volume_10d_calc','10日均量 / 万股','十日平均成交股数。'],['Value.Traded|1W','周成交额 / 百万','Leader门槛>300百万美元。'],['Perf.1M','月表现 %','数据源近一月价格表现；Leader默认按它降序。'],['premarket_change','盘前涨幅 %','Premarket默认按它降序，没有额外最小涨幅限制。'],['scan_date','选股日期','选股快照所依据的日期。'],['setup_asof','分析日线日期','辅助参考位所使用的最后完整日线日期；可能与扫描日期不同。'],['history_last_seen','最后入选 UTC','最后一次记录该证券通过当前模式的时间，不是实际移出时间。'],['sector','行业','数据源行业分类。'],['setup_reason','辅助判断依据','结构阶段的判断理由，或未能分析的具体原因。']
+ ['market_cap_basic','市值 / 亿美元','Potent上一日市值可能按当前股数和历史价格回推估算。'],['Volatility.W','周波动 %','数据源周波动率，不等于ADR20；Potent门槛>3.5%。'],['Value.Traded','日成交额 / 百万','Potent为完整日成交额；其余模式为当日扫描快照。'],['average_volume_10d_calc','10日均量 / 万股','十日平均成交股数。'],['Value.Traded|1W','周成交额 / 百万','Leader门槛>300百万美元。'],['Perf.1M','月表现 %','数据源近一月价格表现；Leader默认按它降序。'],['premarket_change','盘前涨幅 %','Premarket默认按它降序，没有额外最小涨幅限制。'],['scan_date','选股日期','选股快照所依据的日期。'],['setup_asof','分析日线日期','辅助参考位所使用的最后完整日线日期；可能与扫描日期不同。'],['history_last_seen','最后入选日期','最后一次记录该证券通过当前模式的UTC日期，不是实际移出日期。'],['sector','行业','数据源行业分类。'],['setup_reason','辅助判断依据','结构阶段的判断理由，或未能分析的具体原因。']
 ];
 let snapshot,mode='Potent',historyView=false,sort=null,selected=null,shown=[],dragged=null;
 let order=columnDefinitions.map(c=>c[0]);
 try{const saved=JSON.parse(localStorage.getItem('martin-column-order'));if(Array.isArray(saved)&&saved.every(x=>typeof x==='string'))order=[...new Set([...saved.filter(k=>order.includes(k)),...order])];}catch{}
 const fmt=(v,d=2)=>typeof v==='number'&&Number.isFinite(v)?v.toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d}):'—';
-function valueText(row,key){const scale={'market_cap_basic':1e8,'Value.Traded':1e6,'average_volume_10d_calc':1e4,'Value.Traded|1W':1e6};const v=row[key];return typeof v==='number'?fmt(v/(scale[key]||1)):v??'—';}
+function valueText(row,key){const scale={'market_cap_basic':1e8,'Value.Traded':1e6,'average_volume_10d_calc':1e4,'Value.Traded|1W':1e6};const v=row[key];if(key==='history_last_seen')return v?String(v).slice(0,10):'—';return typeof v==='number'?fmt(v/(scale[key]||1)):v??'—';}
 function node(tag,text,cls){const el=document.createElement(tag);if(text!==undefined)el.textContent=text;if(cls)el.className=cls;return el;}
 function sortedRows(rows){
  if(!sort)return rows;

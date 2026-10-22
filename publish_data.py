@@ -3,6 +3,7 @@ import argparse
 import datetime as dt
 import json
 import math
+import time
 from pathlib import Path
 import sys
 from zoneinfo import ZoneInfo
@@ -89,7 +90,22 @@ def build(report,cache,output,state,today=None,attempts=None):
     return manifest
 
 
-def refresh(cache,output,state,max_charts=120):
+def select_chart_batch(ordered,cached_symbols,cursor,limit):
+    if not ordered:return []
+    offset=cursor%len(ordered)
+    rotating=ordered[offset:]+ordered[:offset]
+    priority=[r for r in rotating if r['symbol'] in cached_symbols]
+    batch=[]
+    seen=set()
+    for row in priority[:limit//2]+rotating:
+        if row['symbol'] not in seen:
+            seen.add(row['symbol'])
+            batch.append(row)
+        if len(batch)>=limit:break
+    return batch
+
+
+def refresh(cache,output,state,max_charts=500):
     # Reuse the shipped real chart files if a new runner has no Actions cache yet.
     def seeds():
         for path in (output/'data/charts').glob('*.json'):
@@ -122,23 +138,22 @@ def refresh(cache,output,state,max_charts=120):
     cursor_path=state/'chart_cursor.json'
     cursor=json.loads(cursor_path.read_text(encoding='utf-8')).get('cursor',0) if cursor_path.exists() else 0
     # Refresh published candidates before adding missing charts, within a bounded free-service budget.
-    priority=[r for r in ordered if (cache/'history'/f'{r["symbol"].replace(".","-").encode().hex()}.json').exists()]
-    rotating=ordered[cursor%max(1,len(ordered)):]+ordered[:cursor%max(1,len(ordered))]
-    batch=[];seen=set()
-    # Half budget maintains cached charts; half progressively fills the rest.
-    for r in priority[:max_charts//2]+rotating:
-        if r['symbol'] not in seen:batch.append(r);seen.add(r['symbol'])
-        if len(batch)>=max_charts:break
+    cached_symbols={r['symbol'] for r in ordered if (cache/'history'/f'{r["symbol"].replace(".","-").encode().hex()}.json').exists()}
+    batch=select_chart_batch(ordered,cached_symbols,cursor,max_charts)
     failures=[];success=0
+    attempted=0
+    deadline=time.monotonic()+20*60
     for security in batch:
+        if time.monotonic()>=deadline:break
+        attempted+=1
         try:
             payload=load_history(security,cache,today=today)
             if payload.get('warning'):failures.append(security['symbol'])
             else:success+=1
         except Exception:failures.append(security['symbol'])
-    write_json(cursor_path,dict(cursor=cursor+max(1,max_charts//2)))
+    write_json(cursor_path,dict(cursor=cursor+max(1,attempted//2)))
     write_json(cache/'martin_report.json',report)
-    result=build(report,cache,output,state,today,dict(attempted=len(batch),successful=success,failed=len(failures)))
+    result=build(report,cache,output,state,today,dict(limit=max_charts,attempted=attempted,successful=success,failed=len(failures),time_budget_reached=attempted<len(batch)))
     print(json.dumps(dict(fetched=fetched,charts=result['chart_count'],counts={m:len(v['current']) for m,v in result['modes'].items()},chart_downloads=result['download_summary']),ensure_ascii=True))
 
 
@@ -148,8 +163,9 @@ if __name__=='__main__':
     parser.add_argument('--output',type=Path,default=BASE/'dist')
     parser.add_argument('--state',type=Path,default=BASE/'state')
     parser.add_argument('--refresh',action='store_true')
-    parser.add_argument('--max-charts',type=int,default=120)
+    parser.add_argument('--max-charts',type=int,default=500)
     args=parser.parse_args()
+    if not 1<=args.max_charts<=5000:parser.error('--max-charts must be between 1 and 5000')
     if args.refresh:refresh(args.cache,args.output,args.state,args.max_charts)
     else:
         report=json.loads((args.cache/'martin_report.json').read_text(encoding='utf-8'))
