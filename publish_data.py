@@ -67,11 +67,15 @@ def build(report,cache,output,state,today=None,attempts=None,require_all=False):
             rows=[r for r in rows if r['date']<str(today)]
             if len(rows)<2:continue
             chart=dict(symbol=symbol,source=raw['source'],adjustment=raw['adjustment'],rows=rows)
-            chart['warning']='历史缓存：K线截止日期早于最近完整交易日，请核对日期' if rows[-1]['date']<str((attempts or {}).get('required_date','')) else ''
+            stale_warning='历史缓存：K线截止日期早于最近完整交易日，请核对日期' if rows[-1]['date']<str((attempts or {}).get('required_date','')) else ''
+            chart['warning']='；'.join(v for v in (stale_warning,raw.get('quality_warning','')) if v)
+            chart['quarantined_bars']=raw.get('quarantined_bars',[])
+            chart['quality_warning']=raw.get('quality_warning','')
             relative=f'data/charts/{symbol.encode().hex()}.json'
             write_json(output/relative,chart)
             charts[symbol]=relative
-            assessment=assess_setup(dict(raw,rows=rows,warning=chart['warning']),today)
+            assessment=assess_setup(dict(raw,rows=rows,warning=stale_warning),today)
+            if raw.get('quality_warning'):assessment['setup_reason']=assessment.get('setup_reason','')+'；历史异常日已隔离，详情见图表说明'
             # Expose the same normalized distance used by desktop helper sorting.
             adr=assessment.get('setup_adr') or assessment.get('setup_adr20')
             if adr and assessment.get('setup_distance') is not None:assessment['setup_sort_distance']=assessment['setup_distance']/adr
@@ -116,7 +120,7 @@ def refresh(cache,output,state,max_charts=0):
             alias=yahoo_symbol(seed)
             target=cache/'history'/f'{alias.encode().hex()}.json'
             if not target.exists():
-                write_json(target,dict(symbol=alias,source=seed['source'],adjustment=seed['adjustment'],rows=seed['rows'],requested_history_days=2196,session_date='',fetched_utc=''))
+                write_json(target,dict(symbol=alias,source=seed['source'],adjustment=seed['adjustment'],rows=seed['rows'],requested_history_days=2196,session_date='',fetched_utc='',quality_warning=seed.get('quality_warning',''),quarantined_bars=seed.get('quarantined_bars',[])))
         except (OSError,ValueError,KeyError,TypeError):continue
     universe=[r for r in load_universe(cache) if r['etf']!='Y']
     raw,fetched=fetch_snapshot(cache)

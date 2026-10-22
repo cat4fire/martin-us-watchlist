@@ -65,12 +65,38 @@ def validate(rows,today):
         if 'volume' not in r or (volume is not None and (not isinstance(volume,(int,float)) or not math.isfinite(volume) or volume<0)):
             raise ValueError('历史成交量无效')
         if r['low']<=0 or r['low']>min(r['open'],r['close']) or r['high']<max(r['open'],r['close']):
-            raise ValueError('历史行情OHLCV无效')
+            raise ValueError(f'历史行情OHLCV无效：{r["date"]} O={r["open"]} H={r["high"]} L={r["low"]} C={r["close"]}')
         valid.append(r)
     if len(valid)<2: raise ValueError('没有足够的完整日线')
     if (today-dt.date.fromisoformat(valid[-1]['date'])).days>7:
         raise ValueError('历史行情超过7个自然日未更新；可能停牌或代码映射错误')
     return valid
+
+
+def validated_history(rows,today):
+    """Quarantine a few clearly invalid OLD bars, keeping original values and disclosure.
+
+    Never repair prices by clamping them, remove recent bars, or stitch sources.
+    """
+    bad=[]
+    for row in rows:
+        date=dt.date.fromisoformat(row['date'])
+        if date>=today:continue
+        values=[row.get(k) for k in ('open','high','low','close')]
+        if not all(isinstance(v,(int,float)) and math.isfinite(v) for v in values):
+            continue  # Strict validator reports missing/nonfinite prices; do not hide them.
+        if row['low']<=0 or row['low']>min(row['open'],row['close']) or row['high']<max(row['open'],row['close']):bad.append(row)
+    if not bad:return validate(rows,today),[]
+    # Keep validation strict for recent or widespread corruption.
+    if len(bad)>3 or len(bad)/max(1,len(rows))>.01 or any((today-dt.date.fromisoformat(r['date'])).days<=365 for r in bad):
+        return validate(rows,today),[]
+    dates={r['date'] for r in bad}
+    retained=[r for r in rows if r['date'] not in dates]
+    valid=validate(retained,today)
+    if len(valid)<252:return validate(rows,today),[]
+    # Verify ordering/duplicate dates in the original stream as well.
+    if any(a['date']>=b['date'] for a,b in zip(rows,rows[1:])):raise ValueError('历史行情日期重复或乱序')
+    return valid,[dict(r,reason='开高低收关系矛盾；原始数值保留用于审计，未修改价格') for r in bad]
 
 def prepare(rows,today,display_days=365):
     rows=validate(rows,today)
@@ -132,7 +158,7 @@ def _load_history(security,cache_dir,force=False,today=None,fetch=None):
         if fetch is None:
             try:
                 rows=fetch_nasdaq(security['symbol'],today)
-                rows=validate(rows,today)
+                rows,quarantined=validated_history(rows,today)
             except Exception as nasdaq_error:
                 import yfinance as yf
                 try:
@@ -140,14 +166,17 @@ def _load_history(security,cache_dir,force=False,today=None,fetch=None):
                         frame=yf.Ticker(symbol).history(start=str(today-dt.timedelta(days=HISTORY_DAYS)),end=str(today),interval='1d',auto_adjust=True,raise_errors=True,timeout=15)
                     if frame is None or frame.empty: raise ValueError('Yahoo未返回历史行情')
                     rows=[dict(date=str(index.date()),**{k.lower():float(r[k]) for k in ('Open','High','Low','Close','Volume')}) for index,r in frame.iterrows()]
+                    rows,quarantined=validated_history(rows,today)
                     source='Yahoo Finance / yfinance（Nasdaq不可用时回退）'
                     adjustment='拆股与股息复权（auto_adjust）'
                 except Exception as yahoo_error:
                     raise RuntimeError(f'Nasdaq: {nasdaq_error}；Yahoo: {yahoo_error}') from yahoo_error
         else:
             rows=fetch(symbol)
+            rows,quarantined=validated_history(rows,today)
         rows=validate(rows,today)
-        payload=dict(symbol=symbol,source=source,adjustment=adjustment,fetched_utc=now.isoformat(),session_date=str(today),requested_history_days=HISTORY_DAYS,rows=rows)
+        quality_warning=('历史数据缺口：隔离'+str(len(quarantined))+'根一年以前的异常日K（'+','.join(r['date'] for r in quarantined)+'）；未修改价格或补造K线') if quarantined else ''
+        payload=dict(symbol=symbol,source=source,adjustment=adjustment,fetched_utc=now.isoformat(),session_date=str(today),requested_history_days=HISTORY_DAYS,rows=rows,quarantined_bars=quarantined,quality_warning=quality_warning)
         displayed=prepare(rows,today,display_days=None)
         if len(displayed)<2: raise ValueError('没有足够历史行情')
         path.parent.mkdir(parents=True,exist_ok=True)
