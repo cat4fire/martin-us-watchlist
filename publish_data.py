@@ -132,7 +132,7 @@ def refresh(cache,output,state,max_charts=0):
         for group in groups:
             if i<len(group) and group[i]['symbol'] not in seen:
                 seen.add(group[i]['symbol']);ordered.append(group[i])
-    required=max((r.get('completed',{}).get('scan_date','') for r in rows),default='') or str(today-dt.timedelta(days=1))
+    required=max((r['completed'].get('scan_date') or '' for r in rows if isinstance(r.get('completed'),dict)),default='') or str(today-dt.timedelta(days=1))
     failures={};results={}
     print(f'All-candidate update: {len(ordered)} unique symbols; required daily bar {required}',flush=True)
     def one(security):
