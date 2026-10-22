@@ -3,11 +3,6 @@ on:
   schedule:
     - cron: '40 23 * * *'
   workflow_dispatch:
-    inputs:
-      max_charts:
-        description: Maximum historical charts to attempt (1-5000)
-        type: number
-        default: 500
   push:
     branches: [main]
     paths-ignore: ['state/**', 'README.md']
@@ -21,7 +16,7 @@ concurrency:
 jobs:
   update:
     runs-on: ubuntu-latest
-    timeout-minutes: 50
+    timeout-minutes: 300
     environment:
       name: github-pages
       url: ${{ steps.deploy.outputs.page_url }}
@@ -34,16 +29,30 @@ jobs:
         with:
           python-version: '3.12'
           cache: pip
-      - uses: actions/cache@v4
+      - uses: actions/cache/restore@v4
         with:
           path: runtime
-          key: market-data-${{ github.run_id }}
+          key: market-data-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: market-data-
       - run: pip install -r requirements.txt
-      - name: Refresh scan and bounded historical data
-        env:
-          CHART_LIMIT: ${{ inputs.max_charts || '500' }}
-        run: python publish_data.py --refresh --max-charts "$CHART_LIMIT"
+      - name: Update missing daily bars for ALL selected stocks
+        run: python publish_data.py --refresh
+      - name: Save downloaded bars even if some symbols failed
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: runtime
+          key: market-data-${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Download diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: history-download-report-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            state/download_report.json
+            state/chart_errors.json
+          if-no-files-found: ignore
+          retention-days: 7
       - name: Check published data
         run: python verify_data.py
       - name: Persist candidate history
