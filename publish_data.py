@@ -90,11 +90,9 @@ def build(report,cache,output,state,today=None,attempts=None,require_all=False):
         def project(row,historical=False):
             row=dict(row,history_last_seen=archive.get(mode,{}).get(row['symbol'],{}).get('history_last_seen'))
             row['chart']=charts.get(row['symbol'])
+            row.update(assessments.get(row['symbol'],dict(setup_status='日K获取失败',setup_reason=(attempts or {}).get('errors',{}).get(row['symbol']) or chart_errors.get(row['symbol'],'缺少有效历史数据'),setup_tier=9)))
             if historical:
-                row.update(setup_status='历史快照·需复核',setup_reason='历史入选价格和日期，非当前买点')
-                for key in ('setup_distance','setup_trigger','setup_invalidation','setup_risk','setup_asof'):row[key]=None
-            else:
-                row.update(assessments.get(row['symbol'],dict(setup_status='日K获取失败',setup_reason=(attempts or {}).get('errors',{}).get(row['symbol']) or chart_errors.get(row['symbol'],'缺少有效历史数据'),setup_tier=9)))
+                row['setup_reason']='历史入选记录，不代表当前通过筛选；'+(row.get('setup_reason') or '')
             return {key:row.get(key) for key in FIELDS}
         preset['current']=[project(r) for r in preset['current']]
         preset['history']=[project(r,True) for r in preset['history']]
