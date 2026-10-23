@@ -75,7 +75,6 @@ def build(report,cache,output,state,today=None,attempts=None,require_all=False):
             write_json(output/relative,chart)
             charts[symbol]=relative
             assessment=assess_setup(dict(raw,rows=rows,warning=stale_warning),today)
-            if raw.get('quality_warning'):assessment['setup_reason']=assessment.get('setup_reason','')+'；历史异常日已隔离，详情见图表说明'
             # Expose the same normalized distance used by desktop helper sorting.
             adr=assessment.get('setup_adr') or assessment.get('setup_adr20')
             if adr and assessment.get('setup_distance') is not None:assessment['setup_sort_distance']=assessment['setup_distance']/adr
@@ -91,8 +90,6 @@ def build(report,cache,output,state,today=None,attempts=None,require_all=False):
             row=dict(row,history_last_seen=archive.get(mode,{}).get(row['symbol'],{}).get('history_last_seen'))
             row['chart']=charts.get(row['symbol'])
             row.update(assessments.get(row['symbol'],dict(setup_status='日K获取失败',setup_reason=(attempts or {}).get('errors',{}).get(row['symbol']) or chart_errors.get(row['symbol'],'缺少有效历史数据'),setup_tier=9)))
-            if historical:
-                row['setup_reason']='历史入选记录，不代表当前通过筛选；'+(row.get('setup_reason') or '')
             return {key:row.get(key) for key in FIELDS}
         preset['current']=[project(r) for r in preset['current']]
         preset['history']=[project(r,True) for r in preset['history']]
