@@ -108,6 +108,8 @@ def prepare(rows,today,display_days=365):
 
 def yahoo_symbol(security):
     symbol=security['symbol']
+    # Boeing Series A depositary preferred; never substitute common stock BA.
+    if symbol=='BA$A':return 'BA-PA'
     # Restrict automatic history to unambiguous common/class symbols. Do not map a preferred to its common.
     if '$' in symbol or symbol.endswith(('.W','.U','.R')) or '/P' in symbol:
         raise ValueError('此特殊证券的历史代码需单独核对，未自动替换为普通股')
