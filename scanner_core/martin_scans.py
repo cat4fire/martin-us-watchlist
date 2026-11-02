@@ -14,7 +14,6 @@ FIELDS += ['time','time[1]']+[key+'[1]' for key in DAILY_FIELDS]
 
 RULES = {
     'Potent': '【完整日固定】市值>1亿美元；周波动>3.5%；收盘>EMA21；完整日成交额>5000万美元。按该日涨幅排序。市值为当前股数回推估算。',
-    'Potent盘中': '【动态】市值>1亿美元；周波动>3.5%；当前价格>EMA21；当日累计成交额>5000万美元。开盘后名单会变化。',
     'Premarket': '市值>1亿美元；10日均量>50万股；Vol×Price>5000万美元；按盘前涨幅降序。',
     'Leader': '市值>1亿美元；10日均量>50万股；Vol×Price 1W>3亿美元；按Perf 1M降序。',
 }
@@ -31,7 +30,6 @@ def classify(r):
 def evaluate(r, mode):
     """Return pass/fail/unknown, never treat missing fields as a rejected stock."""
     if mode not in RULES: raise ValueError('未知扫描模式')
-    if mode=='Potent盘中':mode='Potent'
     checks=[('market_cap_basic',100_000_000)]
     if mode=='Potent':
         checks += [('Volatility.W',3.5),('Value.Traded',50_000_000)]
@@ -72,7 +70,7 @@ def screen(rows, mode, group='全部', small_only=False):
             if group!='全部' and r['group']!=group: continue
             if small_only and r['market_cap_basic']>=5_000_000_000: continue
             selected.append(r)
-    key={'Potent':'change','Potent盘中':'change','Premarket':'premarket_change','Leader':'Perf.1M'}[mode]
+    key={'Potent':'change','Premarket':'premarket_change','Leader':'Perf.1M'}[mode]
     return sorted(selected,key=lambda r:(-r[key],r['symbol'])),missing,rejected
 
 def decode_snapshot(payload):
