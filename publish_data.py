@@ -18,7 +18,7 @@ from entry_priority import assess_setup
 from candidate_history import record_candidates
 from incremental_history import update_history
 
-FIELDS=('symbol','ticker','security_name','group','close','change','market_cap_basic','Volatility.W','Value.Traded','average_volume_10d_calc','Value.Traded|1W','Perf.1M','premarket_change','scan_date','sector','history_last_seen','setup_status','setup_distance','setup_trigger','setup_invalidation','setup_risk','setup_asof','setup_reason','setup_tier','setup_sort_distance','chart')
+FIELDS=('entry_structure','entry_trigger','entry_invalidation','entry_distance','entry_risk','entry_asof','entry_state','entry_basis','symbol','ticker','security_name','group','close','change','market_cap_basic','Volatility.W','Value.Traded','average_volume_10d_calc','Value.Traded|1W','Perf.1M','premarket_change','scan_date','sector','history_last_seen','setup_status','setup_distance','setup_trigger','setup_invalidation','setup_risk','setup_asof','setup_reason','setup_tier','setup_sort_distance','chart')
 
 
 def clean(value):

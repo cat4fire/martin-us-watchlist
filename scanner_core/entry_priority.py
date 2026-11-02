@@ -17,7 +17,7 @@ def unassessed(reason='待分析'):
     return dict(setup_tier=9,setup_status=reason,setup_distance=None,setup_trigger=None,
                 setup_invalidation=None,setup_risk=None,setup_asof=None,setup_reason=reason)
 
-def assess_setup(payload,today=None,parameters=DEFAULTS):
+def _assess_setup(payload,today=None,parameters=DEFAULTS):
     today=today or dt.datetime.now(ZoneInfo('America/New_York')).date()
     rows=[r for r in payload.get('rows',[]) if not r.get('display_only') and not r.get('is_partial')]
     if len(rows)<50: return unassessed('不足50根日线')
@@ -73,3 +73,23 @@ def assess_setup(payload,today=None,parameters=DEFAULTS):
 def prioritize(rows,assessments):
     enriched=[dict(r,**assessments.get(r['symbol'],unassessed())) for r in rows]
     return sorted(enriched,key=lambda r:(r['setup_tier'],r.get('setup_normalized_distance',float('inf')),r['setup_risk'] if r['setup_risk'] is not None else float('inf'),r['symbol']))
+
+
+def assess_setup(payload,today=None,parameters=DEFAULTS):
+    result=_assess_setup(payload,today,parameters)
+    fields=dict(entry_structure='暂未识别',entry_trigger=None,entry_invalidation=None,entry_distance=None,entry_risk=None,entry_asof=None,entry_state='待分析',entry_basis='至少需要51根完整日线；辅助规则，非Martin固定公式')
+    rows=[r for r in payload.get('rows',[]) if not r.get('display_only') and not r.get('is_partial')]
+    if len(rows)<51:return dict(result,**fields)
+    # Freeze the setup before the latest completed session; that session only evaluates it.
+    prior=_assess_setup(dict(payload,rows=rows[:-1]),today,parameters)
+    if prior.get('setup_trigger') is None:return dict(result,**fields)
+    a,b=rows[-2],rows[-3];reason=prior.get('setup_reason','')
+    if '内包日' in reason:kind='内包日'
+    elif '单日振幅收窄' in reason or '3日区间紧凑' in reason:kind='收紧'
+    elif '接近/守住' in reason and prior.get('setup_tier',9)<=2:kind='回调支撑'
+    else:return dict(result,**dict(fields,entry_asof=a['date']))
+    trigger=prior['setup_trigger'];stop=prior['setup_invalidation'];last=rows[-1]
+    hit=last['high']>trigger;failed=last['low']<stop
+    state='同日双触及·顺序未知' if hit and failed else '结构失效' if failed else '已突破' if hit else '等待触发'
+    fields.update(entry_structure=kind,entry_trigger=trigger,entry_invalidation=stop,entry_distance=(trigger/last['close']-1)*100,entry_risk=(trigger-stop)/trigger*100,entry_asof=a['date'],entry_state=state,entry_basis=f"结构截至{a['date']}；用{last['date']}完整日高低价检查；参考位不使用该检查日数据。辅助规则，非Martin固定公式")
+    return dict(result,**fields)
