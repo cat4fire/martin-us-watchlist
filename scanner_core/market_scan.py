@@ -28,22 +28,45 @@ def parse_directory(text, source):
     return rows
 
 def load_universe(cache_dir):
-    """Never silently replace the full universe with a handpicked list or stale cache."""
-    directory = Path(cache_dir)
-    directory.mkdir(parents=True, exist_ok=True)
-    combined = {}
-    fetched = dt.datetime.now(dt.timezone.utc).isoformat()
-    for source, url in DIRECTORY_URLS.items():
-        req = Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-        with urlopen(req, timeout=30) as response:
-            text = response.read().decode('utf-8-sig')
-        rows = parse_directory(text, source)
-        (directory / f'{source}.txt').write_text(text, encoding='utf-8')
-        for r in rows:
-            combined[r['symbol']] = r
-    result = sorted(combined.values(), key=lambda r: r['symbol'])
-    (directory / 'universe.json').write_text(json.dumps({'fetched_utc': fetched, 'securities': result}, ensure_ascii=False), encoding='utf-8')
+    """Retry empty upstream directories; bounded validated fallback is explicitly reported."""
+    import re
+    import time
+    directory=Path(cache_dir)
+    directory.mkdir(parents=True,exist_ok=True)
+    combined={};statuses={}
+    now=dt.datetime.now(dt.timezone.utc)
+    for source,url in DIRECTORY_URLS.items():
+        path=directory/f'{source}.txt';rows=None;error=None
+        for attempt in range(3):
+            try:
+                req=Request(url,headers={'User-Agent':'Mozilla/5.0','Cache-Control':'no-cache'})
+                with urlopen(req,timeout=30) as response:text=response.read().decode('utf-8-sig')
+                rows=parse_directory(text,source)
+                temporary=path.with_suffix('.tmp');temporary.write_text(text,encoding='utf-8');temporary.replace(path)
+                statuses[source]=dict(cached=False,count=len(rows),date=now.date().isoformat())
+                break
+            except Exception as exc:
+                error=exc
+                if attempt<2:time.sleep(1)
+        if rows is None:
+            try:
+                text=path.read_text(encoding='utf-8-sig')
+                match=re.search(r'File Creation Time:\s*(\d{8})',text)
+                if not match:raise ValueError('缓存缺少官方目录日期')
+                date=dt.datetime.strptime(match.group(1),'%m%d%Y').date()
+                age=(now.date()-date).days
+                if not 0<=age<=7:raise ValueError(f'缓存目录已超过7天或日期无效：{date}')
+                rows=parse_directory(text,source)
+                statuses[source]=dict(cached=True,count=len(rows),date=str(date),reason=str(error))
+                print(f'WARNING: {source}官方目录暂不可用，使用{date}完整目录缓存（{len(rows)}只）；新上市/退市变动可能延迟。',flush=True)
+            except Exception as cached_error:
+                raise RuntimeError(f'{source}官方目录连续3次获取失败：{error}；无合格缓存：{cached_error}') from cached_error
+        for row in rows:combined[row['symbol']]=row
+    result=sorted(combined.values(),key=lambda r:r['symbol'])
+    (directory/'directory_status.json').write_text(json.dumps(statuses,ensure_ascii=False),encoding='utf-8')
+    (directory/'universe.json').write_text(json.dumps(dict(fetched_utc=now.isoformat(),directories=statuses,securities=result),ensure_ascii=False),encoding='utf-8')
     return result
+
 
 def ema(values, length):
     value = values[0]

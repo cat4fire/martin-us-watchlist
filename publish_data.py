@@ -111,6 +111,8 @@ def build(report,cache,output,state,today=None,attempts=None,require_all=False):
     dates=sorted({r.get('scan_date','') for r in modes['Potent']['current'] if r.get('scan_date')})
     manifest=dict(schema=1,fetched=report['fetched'],built_utc=dt.datetime.now(dt.timezone.utc).isoformat(),complete_session=dates[-1] if dates else None,scope=report['scope'],matched=len(report['rows']),unmatched=len(report['missing']),chart_count=len(charts),modes=modes,download_summary=attempts or {})
     manifest['watchlist']=[dict(security,chart=charts.get(security['symbol']),**watch_prices.get(security['symbol'],{}),**assessments.get(security['symbol'],{})) for security in extra_securities()]
+    status_path=cache/'directory_status.json'
+    manifest['directory_status']=json.loads(status_path.read_text(encoding='utf-8')) if status_path.exists() else {}
     write_json(output/'data/manifest.json',manifest)
     # Keep only public, relevant fields in durable history; no runtime internals or credentials.
     write_json(archive_path,{m:{s:{k:r.get(k) for k in FIELDS if not k.startswith('setup_') and k!='chart'} for s,r in bucket.items()} for m,bucket in archive.items()})
