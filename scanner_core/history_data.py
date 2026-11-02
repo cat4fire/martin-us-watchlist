@@ -38,12 +38,18 @@ def parse_nasdaq(payload,symbol):
     return rows
 
 def fetch_nasdaq(symbol,today):
-    query=urlencode(dict(assetclass='stocks',fromdate=str(today-dt.timedelta(days=HISTORY_DAYS)),todate=str(today),limit=5000))
-    url=f'https://api.nasdaq.com/api/quote/{quote(symbol,safe="")}/historical?{query}'
-    request=Request(url,headers={'User-Agent':'Mozilla/5.0','Accept':'application/json','Referer':'https://www.nasdaq.com/'})
-    with urlopen(request,timeout=18) as response:
-        payload=json.loads(response.read().decode('utf-8'))
-    return parse_nasdaq(payload,symbol)
+    errors=[]
+    # Nasdaq exposes ETF history under a separate asset class.
+    for assetclass in ('stocks','etf'):
+        query=urlencode(dict(assetclass=assetclass,fromdate=str(today-dt.timedelta(days=HISTORY_DAYS)),todate=str(today),limit=5000))
+        url=f'https://api.nasdaq.com/api/quote/{quote(symbol,safe="")}/historical?{query}'
+        request=Request(url,headers={'User-Agent':'Mozilla/5.0','Accept':'application/json','Referer':'https://www.nasdaq.com/'})
+        try:
+            with urlopen(request,timeout=18) as response:
+                return parse_nasdaq(json.loads(response.read().decode('utf-8')),symbol)
+        except Exception as exc:errors.append(f'{assetclass}: {exc}')
+    raise ValueError('；'.join(errors))
+
 
 def ema_series(values,length):
     if not values: return []

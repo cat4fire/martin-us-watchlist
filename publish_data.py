@@ -21,6 +21,17 @@ from incremental_history import update_history
 FIELDS=('entry_structure','entry_trigger','entry_invalidation','entry_distance','entry_risk','entry_asof','entry_state','entry_basis','symbol','ticker','security_name','group','close','change','market_cap_basic','Volatility.W','Value.Traded','average_volume_10d_calc','Value.Traded|1W','Perf.1M','premarket_change','scan_date','sector','history_last_seen','setup_status','setup_distance','setup_trigger','setup_invalidation','setup_risk','setup_asof','setup_reason','setup_tier','setup_sort_distance','chart')
 
 
+def extra_securities():
+    path=BASE/'watch_symbols.json'
+    if not path.exists():return []
+    values=json.loads(path.read_text(encoding='utf-8-sig'))
+    if not isinstance(values,list):raise ValueError('watch_symbols.json必须为代码数组')
+    import re
+    if any(not isinstance(v,str) or not re.fullmatch(r'[A-Z0-9][A-Z0-9.\-]{0,19}',v) for v in values):
+        raise ValueError('自选下载代码格式无效')
+    return [dict(symbol=v,security_name=v,scan_date='自选下载，非扫描结果') for v in dict.fromkeys(values)]
+
+
 def clean(value):
     if isinstance(value,float) and not math.isfinite(value):return None
     if isinstance(value,dict):return {k:clean(v) for k,v in value.items()}
@@ -52,6 +63,8 @@ def build(report,cache,output,state,today=None,attempts=None,require_all=False):
         for row in rows:securities[row['symbol']]=row
         for row in archive.get(mode,{}).values():securities.setdefault(row['symbol'],row)
         modes[mode]=dict(rule=rule,current=rows,history=list(archive.get(mode,{}).values()),missing=len(missing),rejected=rejected)
+    for security in extra_securities():securities.setdefault(security['symbol'],security)
+    watch_prices={}
     charts={}
     assessments={}
     chart_errors={}
@@ -66,6 +79,8 @@ def build(report,cache,output,state,today=None,attempts=None,require_all=False):
             rows=prepare(raw['rows'],validation_day,display_days=None)
             rows=[r for r in rows if r['date']<str(today)]
             if len(rows)<2:continue
+            last=rows[-1]
+            watch_prices[symbol]=dict(close=last['close'],scan_date=last['date'],change=(last['close']/rows[-2]['close']-1)*100,group=('Lead' if last['ema9']>last['ema21']>last['ema50'] else 'Lag' if last['ema9']<last['ema21']<last['ema50'] else 'Mediocre'))
             chart=dict(symbol=symbol,source=raw['source'],adjustment=raw['adjustment'],rows=rows)
             stale_warning='历史缓存：K线截止日期早于最近完整交易日，请核对日期' if rows[-1]['date']<str((attempts or {}).get('required_date','')) else ''
             chart['warning']='；'.join(v for v in (stale_warning,raw.get('quality_warning','')) if v)
@@ -95,6 +110,7 @@ def build(report,cache,output,state,today=None,attempts=None,require_all=False):
         preset['history']=[project(r,True) for r in preset['history']]
     dates=sorted({r.get('scan_date','') for r in modes['Potent']['current'] if r.get('scan_date')})
     manifest=dict(schema=1,fetched=report['fetched'],built_utc=dt.datetime.now(dt.timezone.utc).isoformat(),complete_session=dates[-1] if dates else None,scope=report['scope'],matched=len(report['rows']),unmatched=len(report['missing']),chart_count=len(charts),modes=modes,download_summary=attempts or {})
+    manifest['watchlist']=[dict(security,chart=charts.get(security['symbol']),**watch_prices.get(security['symbol'],{}),**assessments.get(security['symbol'],{})) for security in extra_securities()]
     write_json(output/'data/manifest.json',manifest)
     # Keep only public, relevant fields in durable history; no runtime internals or credentials.
     write_json(archive_path,{m:{s:{k:r.get(k) for k in FIELDS if not k.startswith('setup_') and k!='chart'} for s,r in bucket.items()} for m,bucket in archive.items()})
@@ -123,7 +139,7 @@ def refresh(cache,output,state,max_charts=0):
     if not rows or len(rows)<len(universe)*.5:raise RuntimeError('行情覆盖异常，保留此前网站，不发布本次结果')
     report=dict(rows=rows,missing=missing,scope=len(universe),fetched=fetched)
     today=history_day()
-    # Every current candidate, including the separately evaluated intraday preset.
+    # Every current candidate, plus explicitly configured personal symbols (including ETFs).
     groups=[screen(rows,m)[0] for m in RULES]
     ordered=[]
     seen=set()
@@ -131,6 +147,9 @@ def refresh(cache,output,state,max_charts=0):
         for group in groups:
             if i<len(group) and group[i]['symbol'] not in seen:
                 seen.add(group[i]['symbol']);ordered.append(group[i])
+    for security in extra_securities():
+        if security['symbol'] not in seen:
+            seen.add(security['symbol']);ordered.append(security)
     required=max((r['completed'].get('scan_date') or '' for r in rows if isinstance(r.get('completed'),dict)),default='') or str(today-dt.timedelta(days=1))
     failures={};results={}
     print(f'All-candidate update: {len(ordered)} unique symbols; required daily bar {required}',flush=True)

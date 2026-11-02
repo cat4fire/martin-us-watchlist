@@ -10,9 +10,14 @@ from history_data import HISTORY_DAYS,load_history,prepare,validate,yahoo_symbol
 
 def fetch_range(security,start,end,source):
     if source.startswith('Nasdaq'):
-        query=urlencode(dict(assetclass='stocks',fromdate=str(start),todate=str(end),limit=5000))
-        request=Request(f'https://api.nasdaq.com/api/quote/{quote(security["symbol"],safe="")}/historical?{query}',headers={'User-Agent':'Mozilla/5.0','Accept':'application/json','Referer':'https://www.nasdaq.com/'})
-        with urlopen(request,timeout=18) as response:return parse_nasdaq(json.load(response),security['symbol'])
+        errors=[]
+        for assetclass in ('stocks','etf'):
+            query=urlencode(dict(assetclass=assetclass,fromdate=str(start),todate=str(end),limit=5000))
+            request=Request(f'https://api.nasdaq.com/api/quote/{quote(security["symbol"],safe="")}/historical?{query}',headers={'User-Agent':'Mozilla/5.0','Accept':'application/json','Referer':'https://www.nasdaq.com/'})
+            try:
+                with urlopen(request,timeout=18) as response:return parse_nasdaq(json.load(response),security['symbol'])
+            except Exception as exc:errors.append(f'{assetclass}: {exc}')
+        raise ValueError('；'.join(errors))
     if source.startswith('Yahoo'):
         import yfinance as yf
         with _download_lock:

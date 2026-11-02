@@ -81,8 +81,9 @@ function installWatchlist(){
  const key='martin-watchlist-v1';let codes=[];
  try{const saved=JSON.parse(localStorage.getItem(key)||'[]');if(Array.isArray(saved))codes=[...new Set(saved.filter(v=>typeof v==='string'))];}catch{}
  const available=new Map();for(const preset of Object.values(snapshot.modes))for(const row of [...preset.history,...preset.current])available.set(row.symbol,row);
+ for(const row of snapshot.watchlist||[])available.set(row.symbol,row);
  const pool={rule:'个人自选，仅保存于本浏览器；不是策略筛选结果。仅网站已发布的股票有日K。',current:[],history:[],missing:0};snapshot.modes['自选池']=pool;
- const rebuild=()=>{pool.current=codes.map(symbol=>available.get(symbol)||{symbol,security_name:'自选代码·未发布行情',entry_state:'未发布日K',entry_basis:'当前网站无此代码的行情；加入自选不会触发云端下载。'});};rebuild();
+ const rebuild=()=>{pool.current=codes.map(symbol=>available.get(symbol)||{symbol,security_name:'自选代码·未发布行情',entry_state:'未发布日K',entry_basis:'当前网站无此代码的行情；需由维护者加入云端下载名单，浏览器添加不会自动上传。'});};rebuild();
  const controls=node('div');controls.style.cssText='display:flex;gap:8px;padding:8px;flex-wrap:wrap';
  const input=node('input');input.placeholder='自选代码，例如 TSLA NVDA';input.setAttribute('aria-label','添加自选股票代码');
  const save=()=>{try{localStorage.setItem(key,JSON.stringify(codes));}catch{alert('浏览器未允许保存，关闭后名单可能丢失。');}rebuild();mode='自选池';historyView=false;sort=null;render();for(const b of $('modes').children)if(b.dataset.mode==='自选池')b.querySelector('small').textContent=codes.length;};
