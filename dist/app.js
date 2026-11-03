@@ -39,13 +39,13 @@ function render(){
  for(const row of shown){const tr=node('tr');tr.classList.toggle('selected',row.symbol===selected);tr.tabIndex=0;tr.setAttribute('aria-selected',String(row.symbol===selected));for(const key of order){const td=node('td');if(key==='group'){td.append(node('span',valueText(row,key),'group'));}else td.textContent=valueText(row,key);if(key==='security_name')td.className='name';if(['change','Perf.1M','premarket_change'].includes(key)&&Number.isFinite(row[key]))td.className=row[key]>=0?'positive':'negative';td.title=String(valueText(row,key));tr.append(td);}tr.addEventListener('click',()=>selectStock(row));tr.addEventListener('keydown',e=>{if(e.key==='Enter')selectStock(row);});body.append(tr);}
  if(!shown.length){const tr=node('tr');const td=node('td',historyView?'暂没有历史移出记录；历史会随每天更新逐步积累。':'没有符合当前筛选的股票。','empty-row');td.colSpan=order.length;tr.append(td);body.append(tr);}
  $('results').textContent=`${shown.length} 只股票 · ${historyView?'历史入选快照':'已发布扫描结果'} · ${preset.missing} 只扫描字段不足`;
- if(!shown.some(r=>r.symbol===selected)){selected=null;if(shown.length)selectStock(shown[0]);else{++chartToken;clearChart('当前名单没有股票');}}
+ if(!shown.some(r=>r.symbol===selected)){selected=null;if(shown.length)selectStock(shown[0]);else{++chartToken;tvRow=null;clearTimeout(tvTimer);$('tvMount').replaceChildren();clearChart('当前名单没有股票');}}
 }
 let chartData=[],chartPayload=null,chartToken=0,start=0,end=0,hoverIndex=null,period=365,geometry=null,drag=null;
 const canvas=$('chart'),ctx=canvas.getContext('2d');
 function clearChart(message){chartData=[];chartPayload=null;$('chartEmpty').textContent=message;$('chartEmpty').hidden=false;$('ohlc').textContent='暂无当前股票行情';$('chartSource').textContent='图表仅提供已发布的历史行情；不以模拟数据替代。';$('range').textContent='滚轮缩放 · 拖动平移';drawChart();}
 async function selectStock(row){
- selected=row.symbol;const token=++chartToken;$('chartSymbol').textContent=row.symbol;$('chartName').textContent=row.security_name||'';[...$('stocks').children].forEach((tr,i)=>{tr.classList.toggle('selected',shown[i]?.symbol===selected);tr.setAttribute('aria-selected',String(shown[i]?.symbol===selected));});clearChart('加载已发布K线…');
+ selected=row.symbol;syncTradingView(row);const token=++chartToken;$('chartSymbol').textContent=row.symbol;$('chartName').textContent=row.security_name||'';[...$('stocks').children].forEach((tr,i)=>{tr.classList.toggle('selected',shown[i]?.symbol===selected);tr.setAttribute('aria-selected',String(shown[i]?.symbol===selected));});clearChart('加载已发布K线…');
  if(!row.chart){clearChart('该股票的历史K线尚未随本次快照发布。名单与扫描条件不受影响。');return;}
  try{const response=await fetch(row.chart);if(!response.ok)throw Error('图表文件不可用');const payload=await response.json();const data=payload.charts?.[row.symbol]??payload;if(token!==chartToken)return;chartPayload=data;chartData=data.rows;if(!chartData?.length)throw Error('历史行情为空');$('chartEmpty').hidden=true;$('chartSource').textContent=`${data.source} · 截至 ${chartData.at(-1).date} · ${data.adjustment}${data.warning?' · '+data.warning:''} · ${row.entry_basis||''} · ${row.entry_state||'候选待分析'} / 触发 ${fmt(row.entry_trigger)} / 失效 ${fmt(row.entry_invalidation)}`;setPeriod(period);}
  catch(error){if(token===chartToken)clearChart(`图表加载失败：${error.message}。请稍后重新选择。`);}
@@ -74,6 +74,31 @@ $('reset').addEventListener('click',()=>{sort=null;$('priority').value='original
 $('export').addEventListener('click',()=>{const escape=v=>'"'+String(v??'').replace(/^([=+@\t\r])/,'\'$1').replaceAll('"','""')+'"';const text='\ufeff'+[order.map(k=>escape(columnDefinitions.find(c=>c[0]===k)[1])).join(','),...shown.map(r=>order.map(k=>escape(valueText(r,k))).join(','))].join('\r\n');const url=URL.createObjectURL(new Blob([text],{type:'text/csv;charset=utf-8'}));const a=document.createElement('a');a.href=url;a.download=`Martin_${mode}_${historyView?'history':'current'}.csv`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);});
 function showHelp(){const target=$('helpContent');target.replaceChildren();for(const [name,preset]of Object.entries(snapshot?.modes||{})){target.append(node('h3',name),node('p',preset.rule));}const sections=[['如何使用','选择扫描策略 → 筛选均线组 → 点击股票看图。点击栏目名称切换升降序，按住拖动调整栏目位置。恢复初始排序只恢复股票排列，保留栏目位置。↑↓换股票，滚轮缩放，按住图表拖动平移。'],['辅助排序不是Martin本人公式','使用完整日线判断收盘>EMA21>EMA50、EMA9/21附近支撑、内包日或收紧结构。就绪候选要求参考风险0至5%。同阶段按距突破位/ADR20，再按风险排序。所有阈值是程序辅助规则，不代表买点或成功概率。'],['历史移出名单','显示历次保存中曾通过同一扫描模式、当前已不在完整候选名单的股票。历史视图保留当时价格与日期；辅助分析按所发布日线计算，请区分选股日期、结构依据日期和检查日期。切换不重新计算或联网扫描，点击股票只读取网站已发布的K线文件。'],['更新与数据覆盖','每日北京时间07:40计划更新（美国夏令时收盘后3小时40分，冬令时后2小时40分）；实际可能延迟。失败保留上次页面，以最后成功更新时间和完整交易日为准。覆盖美国交易所目录，默认不含ETF、OTC及已退市证券；部分证券无行情或字段缺失，不代表100%覆盖。'],['历史K线','免费分享版没有实时价格。已发布K线可离线于行情源查看；未获取的股票明确显示缺失。历史行情源、截止日、复权口径分别标注。仅完整日线，不把未收盘价格作为选股依据。']];for(const [title,text]of sections)target.append(node('h3',title),node('p',text));$('dialog').showModal();}
 $('help').addEventListener('click',showHelp);$('about').addEventListener('click',showHelp);$('closeDialog').addEventListener('click',()=>$('dialog').close());$('dialog').addEventListener('click',e=>{if(e.target===$('dialog'))$('dialog').close();});
+let tvEnabled=false,tvRow=null,tvTimer=null;
+function tradingViewSymbol(row){
+ if(row.ticker&&row.ticker.includes(':'))return row.ticker;
+ const known={QNDX:'NASDAQ',SMH:'NASDAQ',IGV:'AMEX',IVV:'AMEX',SOXQ:'NASDAQ',ARKQ:'AMEX',ARKK:'AMEX',DRAM:'CBOE',TLT:'NASDAQ',UCO:'AMEX',IBIT:'NASDAQ'};
+ return known[row.symbol]?known[row.symbol]+':'+row.symbol:row.symbol;
+}
+function syncTradingView(row){
+ tvRow=row;if(!tvEnabled)return;
+ clearTimeout(tvTimer);tvTimer=setTimeout(()=>mountTradingView(row),150);
+}
+function mountTradingView(row){
+ if(!tvEnabled||row!==tvRow)return;
+ const symbol=tradingViewSymbol(row),mount=$('tvMount');mount.replaceChildren();
+ $('tvExternal').href='https://www.tradingview.com/chart/?symbol='+encodeURIComponent(symbol);
+ $('tvNotice').textContent=row.symbol+' · TradingView独立行情，可能有延迟；EMA按当前周期计算。可在指标设置中核对9/21/50参数。';
+ const container=node('div');container.id='tvEmbeddedChart';container.style.height='100%';mount.append(container);
+ const create=()=>{if(!tvEnabled||row!==tvRow||!container.isConnected)return;try{new TradingView.widget({container_id:container.id,autosize:true,symbol,interval:$('tvInterval').value,timezone:'America/New_York',theme:'dark',style:'1',locale:'zh_CN',allow_symbol_change:false,hide_side_toolbar:false,enable_publishing:false,studies:[{id:'MAExp@tv-basicstudies',inputs:{length:9}},{id:'MAExp@tv-basicstudies',inputs:{length:21}},{id:'MAExp@tv-basicstudies',inputs:{length:50}}]});}catch(error){$('tvNotice').textContent='TradingView加载失败，可切回本地图表或在新窗口打开。';}};
+ if(window.TradingView){create();return;}
+ const script=document.createElement('script');script.src='https://s3.tradingview.com/tv.js';script.onload=create;script.onerror=()=>{$('tvNotice').textContent='TradingView未能加载，请检查网络；本地图表仍可使用。';};container.append(script);
+}
+function switchChart(enabled){
+ tvEnabled=enabled;$('tvPanel').hidden=!enabled;document.querySelector('.chart-panel').hidden=enabled;$('tvIntervalLabel').hidden=!enabled;$('tvExternal').hidden=!enabled;$('tvChartButton').setAttribute('aria-pressed',String(enabled));$('localChartButton').setAttribute('aria-pressed',String(!enabled));
+ if(enabled&&tvRow)syncTradingView(tvRow);else if(!enabled){clearTimeout(tvTimer);$('tvMount').replaceChildren();drawChart();}
+}
+$('localChartButton').addEventListener('click',()=>switchChart(false));$('tvChartButton').addEventListener('click',()=>switchChart(true));$('tvInterval').addEventListener('change',()=>{if(tvRow)syncTradingView(tvRow);});
 async function init(){try{const response=await fetch('data/manifest.json',{cache:'no-cache'});if(!response.ok)throw Error(`HTTP ${response.status}`);snapshot=await response.json();delete snapshot.modes['Potent盘中'];try{installWatchlist();}catch(error){console.error('自选池初始化失败',error);$('loadError').hidden=false;$('loadError').textContent='自选池暂不可用：'+error.message+'；原有观察池仍可使用。';}for(const [name,preset]of Object.entries(snapshot.modes)){const b=node('button');b.dataset.mode=name;b.title=preset.rule;b.append(node('span',name),node('small',preset.current.length));b.addEventListener('click',()=>{mode=name;historyView=false;sort=null;render();});$('modes').append(b);}$('session').textContent=snapshot.complete_session||'未提供';$('coverage').textContent=`${snapshot.matched.toLocaleString()} / ${snapshot.scope.toLocaleString()}`;$('unmatched').textContent=`${snapshot.unmatched} 只未匹配`;const updated=new Date(snapshot.fetched);$('updated').textContent=Number.isNaN(updated.getTime())?snapshot.fetched:updated.toLocaleString('zh-CN',{timeZone:'Asia/Shanghai',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false});const stale=Date.now()-updated.getTime()>72*3600*1000;$('freshness').textContent=stale?'快照超过72小时，请留意日期':`已发布 · ${snapshot.chart_count} 只K线`;const cachedDirs=Object.entries(snapshot.directory_status||{}).filter(([k,v])=>v.cached);if(cachedDirs.length){$('loadError').hidden=false;$('loadError').textContent='交易所目录临时使用缓存：'+cachedDirs.map(([k,v])=>k+' '+v.date).join('；')+'。新上市/退市变动可能延迟；行情日期另见图表。';}render();}catch(error){$('loadError').hidden=false;$('loadError').textContent=`选股快照读取失败：${error.message}。请刷新页面重试。`;$('results').textContent='无法读取数据';clearChart('尚无可用数据');}}
 init();
 
