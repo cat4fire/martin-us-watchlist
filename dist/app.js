@@ -58,10 +58,19 @@ function drawChart(){
  const maxVol=Math.max(1,...visible.map(r=>r.volume||0));
  for(let i=start;i<end;i++){const r=chartData[i],color=r.close>=r.open?'#3caa8d':'#ce737b',xp=x(i);ctx.strokeStyle=color;ctx.lineWidth=.8;ctx.beginPath();ctx.moveTo(xp,y(r.high));ctx.lineTo(xp,y(r.low));ctx.stroke();ctx.fillStyle=color;const body=Math.max(1,Math.min(step*.62,13));ctx.fillRect(xp-body/2,Math.min(y(r.open),y(r.close)),body,Math.max(1,Math.abs(y(r.open)-y(r.close))));if(Number.isFinite(r.volume)){ctx.globalAlpha=.3;const vh=(r.volume/maxVol)*(volBottom-volTop);ctx.fillRect(xp-body/2,volBottom-vh,body,vh);ctx.globalAlpha=1;}}
  for(const [key,color] of [['ema9','#50a0e8'],['ema21','#e5a956'],['ema50','#ae86ce']]){ctx.beginPath();ctx.strokeStyle=color;ctx.lineWidth=.8;let first=true;for(let i=start;i<end;i++){const v=chartData[i][key];if(!Number.isFinite(v))continue;if(first){ctx.moveTo(x(i),y(v));first=false;}else ctx.lineTo(x(i),y(v));}ctx.stroke();}
+ const annotations=chartPayload?.annotations;
+ if(annotations){
+  const dates=new Map(chartData.map((r,i)=>[r.date,i]));
+  ctx.save();ctx.lineWidth=1;ctx.strokeStyle='#e5a956';ctx.setLineDash([5,4]);
+  for(const stop of annotations.stops||[]){const a=dates.get(stop.start),b=dates.get(stop.end);if(a===undefined||b===undefined||b<start||a>=end)continue;ctx.beginPath();ctx.moveTo(x(Math.max(a,start)),y(stop.price));ctx.lineTo(x(Math.min(b,end-1)),y(stop.price));ctx.stroke();}
+  ctx.setLineDash([]);ctx.font='bold 11px sans-serif';
+  for(const event of annotations.events||[]){const i=dates.get(event.date);if(i===undefined||i<start||i>=end)continue;ctx.fillStyle=event.kind==='buy'?'#58d8a6':event.kind==='sell'?'#ff8686':'#edcd67';ctx.fillText(event.kind==='buy'?'▲买':event.kind==='sell'?'▼卖':'?顺序',x(i)-10,y(event.price)+(event.kind==='buy'?14:-10));}
+  ctx.restore();
+ }
  ctx.fillStyle='#60788c';ctx.textAlign='center';for(let t=0;t<5;t++){const i=Math.min(end-1,start+Math.floor((end-start-1)*t/4));ctx.fillText(chartData[i].date,x(i),h-9);}ctx.textAlign='left';
  const high=visible.reduce((a,b)=>a.high>=b.high?a:b),low=visible.reduce((a,b)=>a.low<=b.low?a:b);$('range').textContent=`${visible[0].date} — ${visible.at(-1).date} · 高 ${fmt(high.high)} / 低 ${fmt(low.low)}`;
  if(hoverIndex!==null&&hoverIndex>=start&&hoverIndex<end){ctx.setLineDash([3,3]);ctx.strokeStyle='#5c7488';ctx.beginPath();ctx.moveTo(x(hoverIndex),top);ctx.lineTo(x(hoverIndex),volBottom);ctx.stroke();ctx.setLineDash([]);}
- const r=chartData[hoverIndex??end-1];$('ohlc').textContent=`${r.date}  O ${fmt(r.open)}  H ${fmt(r.high)}  L ${fmt(r.low)}  C ${fmt(r.close)}  V ${r.volume===null?'缺失':fmt(r.volume,0)}`;
+ const r=chartData[hoverIndex??end-1];const marks=(chartPayload?.annotations?.events||[]).filter(e=>e.date===r.date);$('tradeInfo').textContent=marks.length?marks.map(e=>`${e.date} ${e.kind==='buy'?'模拟买入':e.kind==='sell'?'模拟卖出':'顺序不明'} ${fmt(e.price)}：${e.reason}`).join('；'):(chartPayload?.annotations?.notice||'本次数据未包含历史买卖标记，需等待新版数据发布。');$('ohlc').textContent=`${r.date}  O ${fmt(r.open)}  H ${fmt(r.high)}  L ${fmt(r.low)}  C ${fmt(r.close)}  V ${r.volume===null?'缺失':fmt(r.volume,0)}`;
 }
 canvas.addEventListener('wheel',e=>{if(!chartData.length||!geometry)return;e.preventDefault();const ratio=Math.max(0,Math.min(1,(e.offsetX-geometry.left)/(geometry.right-geometry.left))),size=end-start,newSize=Math.max(Math.min(10,chartData.length),Math.min(chartData.length,Math.round(size*(e.deltaY<0?.8:1.25)))),anchor=start+ratio*size;start=Math.max(0,Math.min(chartData.length-newSize,Math.round(anchor-ratio*newSize)));end=start+newSize;hoverIndex=null;drawChart();},{passive:false});
 canvas.addEventListener('pointerdown',e=>{if(!chartData.length)return;canvas.focus();canvas.setPointerCapture(e.pointerId);drag={x:e.offsetX,start,end};});

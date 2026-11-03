@@ -14,7 +14,7 @@ sys.path.insert(0,str(BASE/'scanner_core'))
 from martin_scans import RULES,screen,fetch_snapshot,merge_universe
 from market_scan import load_universe
 from history_data import load_history,prepare,yahoo_symbol
-from entry_priority import assess_setup
+from entry_priority import assess_setup,trade_annotations
 from candidate_history import record_candidates
 from incremental_history import update_history
 
@@ -81,7 +81,7 @@ def build(report,cache,output,state,today=None,attempts=None,require_all=False):
             if len(rows)<2:continue
             last=rows[-1]
             watch_prices[symbol]=dict(close=last['close'],scan_date=last['date'],change=(last['close']/rows[-2]['close']-1)*100,group=('Lead' if last['ema9']>last['ema21']>last['ema50'] else 'Lag' if last['ema9']<last['ema21']<last['ema50'] else 'Mediocre'))
-            chart=dict(symbol=symbol,source=raw['source'],adjustment=raw['adjustment'],rows=rows)
+            chart=dict(symbol=symbol,source=raw['source'],adjustment=raw['adjustment'],rows=rows,annotations=trade_annotations(rows))
             stale_warning='历史缓存：K线截止日期早于最近完整交易日，请核对日期' if rows[-1]['date']<str((attempts or {}).get('required_date','')) else ''
             chart['warning']='；'.join(v for v in (stale_warning,raw.get('quality_warning','')) if v)
             chart['quarantined_bars']=raw.get('quarantined_bars',[])

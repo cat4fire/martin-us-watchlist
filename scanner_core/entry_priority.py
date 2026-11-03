@@ -93,3 +93,35 @@ def assess_setup(payload,today=None,parameters=DEFAULTS):
     state='同日双触及·顺序未知' if hit and failed else '结构失效' if failed else '已突破' if hit else '等待触发'
     fields.update(entry_structure=kind,entry_trigger=trigger,entry_invalidation=stop,entry_distance=(trigger/last['close']-1)*100,entry_risk=(trigger-stop)/trigger*100,entry_asof=a['date'],entry_state=state,entry_basis=f"结构截至{a['date']}；用{last['date']}完整日高低价检查；参考位不使用该检查日数据。辅助规则，非Martin固定公式")
     return dict(result,**fields)
+
+
+def trade_annotations(rows,parameters=DEFAULTS):
+    """Causal daily structure simulation; not actual fills or historical pool membership."""
+    events=[];segments=[];position=None;exit_next=False
+    for i in range(50,len(rows)):
+        bar=rows[i];previous=rows[i-1]
+        if position is not None:
+            stop=position['stop']
+            if exit_next or bar['low']<=stop:
+                # If a scheduled next-open exit gaps below the stop, the open is used.
+                price=bar['open'] if exit_next or bar['open']<=stop else stop
+                reason='前日收盘跌破EMA21，次日开盘退出' if exit_next else '触及初始结构止损；跳空越过时按开盘价'
+                events.append(dict(date=bar['date'],kind='sell',price=price,reason=reason))
+                segments.append(dict(start=position['date'],end=bar['date'],price=stop))
+                position=None;exit_next=False
+            else:exit_next=bar['close']<bar['ema21']
+            continue
+        setup=_assess_setup({'rows':rows[max(0,i-60):i]},dt.date.fromisoformat(bar['date'])+dt.timedelta(days=1),parameters)
+        if setup.get('setup_tier')!=1:continue
+        trigger=setup['setup_trigger'];stop=setup['setup_invalidation']
+        if bar['high']<=trigger:continue
+        price=max(bar['open'],trigger)
+        risk=(price-stop)/price*100
+        if not 0<risk<=parameters.max_reference_risk:continue
+        if bar['low']<=stop:
+            events.append(dict(date=bar['date'],kind='uncertain',price=price,stop=stop,reason=f"前日结构触发{trigger:.2f}、止损{stop:.2f}同日双触及；无法判断先后，本模拟跳过该次入场"))
+            continue
+        position=dict(date=bar['date'],stop=stop);exit_next=bar['close']<bar['ema21']
+        events.append(dict(date=bar['date'],kind='buy',price=price,stop=stop,reason=f"结构截至{previous['date']}；{setup['setup_reason']}；突破{trigger:.2f}，初始止损{stop:.2f}，参考风险{risk:.2f}%。仅日线假设成交"))
+    if position:segments.append(dict(start=position['date'],end=rows[-1]['date'],price=position['stop']))
+    return dict(version=1,events=events,stops=segments,notice='程序辅助策略，非Martin完整交易系统；历史结构模拟，不代表历史通过Potent筛选或真实成交；同日双触及跳过入场；不含费用和滑点。')
