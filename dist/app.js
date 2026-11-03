@@ -53,7 +53,7 @@ async function selectStock(row){
 function setPeriod(days){period=days;if(!chartData.length)return;const cutoff=days===null?'0000-00-00':new Date(new Date(chartData.at(-1).date+'T12:00:00Z').getTime()-days*86400000).toISOString().slice(0,10);start=chartData.findIndex(r=>r.date>=cutoff);if(start<0)start=0;end=chartData.length;hoverIndex=null;for(const b of $('periods').children)b.classList.toggle('active',String(days??'all')===b.dataset.days);drawChart();}
 function drawChart(){
  const rect=canvas.getBoundingClientRect(),dpr=window.devicePixelRatio||1,w=Math.max(1,rect.width),h=Math.max(1,rect.height);canvas.width=Math.round(w*dpr);canvas.height=Math.round(h*dpr);ctx.setTransform(dpr,0,0,dpr,0,0);ctx.fillStyle='#111c28';ctx.fillRect(0,0,w,h);if(!chartData.length||end<=start)return;
- const left=12,right=w-65,top=16,bottom=h-74,volTop=h-62,volBottom=h-23,visible=chartData.slice(start,end),prices=visible.flatMap(r=>[r.high,r.low,r.ema9,r.ema21,r.ema50]).filter(Number.isFinite);let lo=Math.min(...prices),hi=Math.max(...prices);const padding=(hi-lo||hi*.02)*.07;lo-=padding;hi+=padding;const step=(right-left)/visible.length,x=i=>left+(i-start+.5)*step,y=v=>bottom-(v-lo)/(hi-lo)*(bottom-top);geometry={left,right,top,bottom,step,lo,hi,w,h};
+ const left=12,right=w-65,top=82,bottom=h-140,volTop=h-62,volBottom=h-23,visible=chartData.slice(start,end),prices=visible.flatMap(r=>[r.high,r.low,r.ema9,r.ema21,r.ema50]).filter(Number.isFinite);let lo=Math.min(...prices),hi=Math.max(...prices);const padding=(hi-lo||hi*.02)*.07;lo-=padding;hi+=padding;const step=(right-left)/visible.length,x=i=>left+(i-start+.5)*step,y=v=>bottom-(v-lo)/(hi-lo)*(bottom-top);geometry={left,right,top,bottom,step,lo,hi,w,h};
  ctx.font='9px -apple-system,Segoe UI,sans-serif';ctx.textBaseline='middle';ctx.strokeStyle='#20303e';ctx.lineWidth=.6;for(let i=0;i<=4;i++){const yp=top+(bottom-top)*i/4;ctx.beginPath();ctx.moveTo(left,yp);ctx.lineTo(right,yp);ctx.stroke();ctx.fillStyle='#60788c';ctx.fillText(fmt(hi-(hi-lo)*i/4),right+9,yp);}
  const maxVol=Math.max(1,...visible.map(r=>r.volume||0));
  for(let i=start;i<end;i++){const r=chartData[i],color=r.close>=r.open?'#3caa8d':'#ce737b',xp=x(i);ctx.strokeStyle=color;ctx.lineWidth=.8;ctx.beginPath();ctx.moveTo(xp,y(r.high));ctx.lineTo(xp,y(r.low));ctx.stroke();ctx.fillStyle=color;const body=Math.max(1,Math.min(step*.62,13));ctx.fillRect(xp-body/2,Math.min(y(r.open),y(r.close)),body,Math.max(1,Math.abs(y(r.open)-y(r.close))));if(Number.isFinite(r.volume)){ctx.globalAlpha=.3;const vh=(r.volume/maxVol)*(volBottom-volTop);ctx.fillRect(xp-body/2,volBottom-vh,body,vh);ctx.globalAlpha=1;}}
@@ -64,7 +64,23 @@ function drawChart(){
   ctx.save();ctx.lineWidth=1;ctx.strokeStyle='#e5a956';ctx.setLineDash([5,4]);
   for(const stop of annotations.stops||[]){const a=dates.get(stop.start),b=dates.get(stop.end);if(a===undefined||b===undefined||b<start||a>=end)continue;ctx.beginPath();ctx.moveTo(x(Math.max(a,start)),y(stop.price));ctx.lineTo(x(Math.min(b,end-1)),y(stop.price));ctx.stroke();}
   ctx.setLineDash([]);ctx.font='bold 11px sans-serif';
-  for(const event of annotations.events||[]){const i=dates.get(event.date);if(i===undefined||i<start||i>=end)continue;ctx.fillStyle=event.kind==='buy'?'#58d8a6':event.kind==='sell'?'#ff8686':'#edcd67';ctx.fillText(event.kind==='buy'?'▲买':event.kind==='sell'?'▼卖':'?顺序',x(i)-10,y(event.price)+(event.kind==='buy'?14:-10));}
+  const lanes={buy:[-Infinity,-Infinity,-Infinity],sell:[-Infinity,-Infinity,-Infinity]};
+  let hiddenLabels=0;
+  for(const event of annotations.events||[]){
+   const i=dates.get(event.date);if(i===undefined||i<start||i>=end)continue;
+   const buy=event.kind==='buy',color=buy?'#58d8a6':event.kind==='sell'?'#ff8686':'#edcd67';
+   const xp=x(i),yp=y(event.price),direction=buy?1:-1;
+   ctx.fillStyle=color;ctx.strokeStyle=color;ctx.beginPath();ctx.moveTo(xp,yp);ctx.lineTo(xp-4,yp+direction*7);ctx.lineTo(xp+4,yp+direction*7);ctx.closePath();ctx.fill();
+   const text=buy?'买':event.kind==='sell'?'卖':'双触及';const tw=ctx.measureText(text).width+12;
+   const labelX=Math.max(left+tw/2,Math.min(right-tw/2,xp));const bank=buy?lanes.buy:lanes.sell;
+   const lane=bank.findIndex(edge=>labelX-tw/2>edge+6);
+   if(lane<0){hiddenLabels++;continue;}
+   bank[lane]=labelX+tw/2;
+   const labelY=buy?bottom+18+lane*17:top-18-lane*17;
+   ctx.globalAlpha=.6;ctx.beginPath();ctx.moveTo(xp,yp+direction*8);ctx.lineTo(labelX,labelY-direction*7);ctx.stroke();ctx.globalAlpha=1;
+   ctx.fillStyle='#111c28';ctx.fillRect(labelX-tw/2,labelY-7,tw,14);ctx.fillStyle=color;ctx.textAlign='center';ctx.fillText(text,labelX,labelY);ctx.textAlign='left';
+  }
+
   ctx.restore();
  }
  ctx.fillStyle='#60788c';ctx.textAlign='center';for(let t=0;t<5;t++){const i=Math.min(end-1,start+Math.floor((end-start-1)*t/4));ctx.fillText(chartData[i].date,x(i),h-9);}ctx.textAlign='left';

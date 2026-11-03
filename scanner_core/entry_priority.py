@@ -95,11 +95,12 @@ def assess_setup(payload,today=None,parameters=DEFAULTS):
     return dict(result,**fields)
 
 
-def trade_annotations(rows,parameters=DEFAULTS):
+def trade_annotations(rows,parameters=DEFAULTS,start_date=None):
     """Causal daily structure simulation; not actual fills or historical pool membership."""
     events=[];segments=[];position=None;exit_next=False
     for i in range(50,len(rows)):
         bar=rows[i];previous=rows[i-1]
+        if start_date and bar['date']<start_date:continue
         if position is not None:
             stop=position['stop']
             if exit_next or bar['low']<=stop:
