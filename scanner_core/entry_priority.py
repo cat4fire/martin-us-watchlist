@@ -126,3 +126,23 @@ def trade_annotations(rows,parameters=DEFAULTS,start_date=None):
         events.append(dict(date=bar['date'],kind='buy',price=price,stop=stop,reason=f"结构截至{previous['date']}；{setup['setup_reason']}；突破{trigger:.2f}，初始止损{stop:.2f}，参考风险{risk:.2f}%。仅日线假设成交"))
     if position:segments.append(dict(start=position['date'],end=rows[-1]['date'],price=position['stop']))
     return dict(version=1,events=events,stops=segments,notice='程序辅助策略，非Martin完整交易系统；历史结构模拟，不代表历史通过Potent筛选或真实成交；同日双触及跳过入场；不含费用和滑点。')
+
+
+def supertrend_annotations(rows,length=10,factor=3):
+    events=[];lines=[];atr=None;trs=[];upper=lower=0.;previous_line=None;direction=0
+    for i,bar in enumerate(rows):
+        previous=rows[i-1]['close'] if i else bar['close']
+        tr=max(bar['high']-bar['low'],abs(bar['high']-previous),abs(bar['low']-previous))
+        trs.append(tr)
+        if i<length-1:continue
+        atr=sum(trs[-length:])/length if atr is None else (atr*(length-1)+tr)/length
+        mid=(bar['high']+bar['low'])/2;up=mid+factor*atr;dn=mid-factor*atr
+        pu,pl=upper,lower
+        lower=dn if dn>pl or previous<pl else pl
+        upper=up if up<pu or previous>pu else pu
+        new=0 if i==length-1 else (1 if bar['close']>upper else 0) if previous_line==pu else (0 if bar['close']<lower else 1)
+        line=lower if new else upper
+        lines.append(dict(date=bar['date'],price=line,trend=new))
+        if i>length-1 and new!=direction:events.append(dict(date=bar['date'],kind='buy' if new else 'sell',price=bar['close'],reason='Supertrend ATR10×3，日线收盘确认翻转；标记价为收盘价，不是提前可成交价'))
+        previous_line=line;direction=new
+    return dict(events=events,lines=lines,stops=[],notice='传统Supertrend：ATR10、倍数3；收盘确认趋势翻转，非原结构策略买卖点。')
