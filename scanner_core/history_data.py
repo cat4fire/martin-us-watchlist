@@ -37,7 +37,11 @@ def parse_nasdaq(payload,symbol):
     rows.sort(key=lambda r:r['date'])
     return rows
 
+def nasdaq_history_symbol(symbol):
+    return {'ORCL$D':'ORCL^D'}.get(symbol,symbol)
+
 def fetch_nasdaq(symbol,today):
+    symbol=nasdaq_history_symbol(symbol)
     errors=[]
     # Nasdaq exposes ETF history under a separate asset class.
     for assetclass in ('stocks','etf'):
@@ -116,6 +120,7 @@ def yahoo_symbol(security):
     symbol=security['symbol']
     # Boeing Series A depositary preferred; never substitute common stock BA.
     if symbol=='BA$A':return 'BA-PA'
+    if symbol=='ORCL$D':return 'ORCL-PD'
     # Restrict automatic history to unambiguous common/class symbols. Do not map a preferred to its common.
     if '$' in symbol or symbol.endswith(('.W','.U','.R')) or '/P' in symbol:
         raise ValueError('此特殊证券的历史代码需单独核对，未自动替换为普通股')

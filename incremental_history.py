@@ -5,17 +5,18 @@ import math
 from pathlib import Path
 from urllib.parse import urlencode,quote
 from urllib.request import Request,urlopen
-from history_data import HISTORY_DAYS,load_history,prepare,validate,yahoo_symbol,parse_nasdaq,_download_lock
+from history_data import HISTORY_DAYS,load_history,prepare,validate,yahoo_symbol,parse_nasdaq,_download_lock,nasdaq_history_symbol
 
 
 def fetch_range(security,start,end,source):
     if source.startswith('Nasdaq'):
+        symbol=nasdaq_history_symbol(security['symbol'])
         errors=[]
         for assetclass in ('stocks','etf'):
             query=urlencode(dict(assetclass=assetclass,fromdate=str(start),todate=str(end),limit=5000))
-            request=Request(f'https://api.nasdaq.com/api/quote/{quote(security["symbol"],safe="")}/historical?{query}',headers={'User-Agent':'Mozilla/5.0','Accept':'application/json','Referer':'https://www.nasdaq.com/'})
+            request=Request(f'https://api.nasdaq.com/api/quote/{quote(symbol,safe="")}/historical?{query}',headers={'User-Agent':'Mozilla/5.0','Accept':'application/json','Referer':'https://www.nasdaq.com/'})
             try:
-                with urlopen(request,timeout=18) as response:return parse_nasdaq(json.load(response),security['symbol'])
+                with urlopen(request,timeout=18) as response:return parse_nasdaq(json.load(response),symbol)
             except Exception as exc:errors.append(f'{assetclass}: {exc}')
         raise ValueError('；'.join(errors))
     if source.startswith('Yahoo'):
