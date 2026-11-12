@@ -18,7 +18,7 @@ from entry_priority import assess_setup,trade_annotations,supertrend_annotations
 from candidate_history import record_candidates
 from incremental_history import update_history
 
-FIELDS=('entry_structure','entry_trigger','entry_invalidation','entry_distance','entry_risk','entry_asof','entry_state','entry_basis','symbol','ticker','security_name','group','close','change','market_cap_basic','Volatility.W','Value.Traded','average_volume_10d_calc','Value.Traded|1W','Perf.1M','premarket_change','scan_date','sector','history_last_seen','setup_status','setup_distance','setup_trigger','setup_invalidation','setup_risk','setup_asof','setup_reason','setup_tier','setup_sort_distance','chart')
+FIELDS=('entry_structure','entry_trigger','entry_invalidation','entry_distance','entry_risk','entry_asof','entry_state','entry_basis','symbol','ticker','security_name','group','lead_days','close','change','market_cap_basic','Volatility.W','Value.Traded','average_volume_10d_calc','Value.Traded|1W','Perf.1M','premarket_change','scan_date','sector','history_last_seen','setup_status','setup_distance','setup_trigger','setup_invalidation','setup_risk','setup_asof','setup_reason','setup_tier','setup_sort_distance','chart')
 
 
 def extra_securities():
@@ -64,6 +64,7 @@ def build(report,cache,output,state,today=None,attempts=None,require_all=False):
         for row in archive.get(mode,{}).values():securities.setdefault(row['symbol'],row)
         modes[mode]=dict(rule=rule,current=rows,history=list(archive.get(mode,{}).values()),missing=len(missing),rejected=rejected)
     for security in extra_securities():securities.setdefault(security['symbol'],security)
+    lead_runs={}
     watch_prices={}
     charts={}
     assessments={}
@@ -79,6 +80,12 @@ def build(report,cache,output,state,today=None,attempts=None,require_all=False):
             rows=prepare(raw['rows'],validation_day,display_days=None)
             rows=[r for r in rows if r['date']<str(today)]
             if len(rows)<2:continue
+            streak=0
+            runs={}
+            for bar in rows:
+                streak=streak+1 if bar['ema9']>bar['ema21']>bar['ema50'] else 0
+                runs[bar['date']]=streak
+            lead_runs[symbol]=runs
             last=rows[-1]
             watch_prices[symbol]=dict(close=last['close'],scan_date=last['date'],change=(last['close']/rows[-2]['close']-1)*100,group=('Lead' if last['ema9']>last['ema21']>last['ema50'] else 'Lag' if last['ema9']<last['ema21']<last['ema50'] else 'Mediocre'))
             chart=dict(symbol=symbol,source=raw['source'],adjustment=raw['adjustment'],rows=rows,supertrend=supertrend_annotations(rows))
@@ -104,6 +111,9 @@ def build(report,cache,output,state,today=None,attempts=None,require_all=False):
         def project(row,historical=False):
             row=dict(row,history_last_seen=archive.get(mode,{}).get(row['symbol'],{}).get('history_last_seen'))
             row['chart']=charts.get(row['symbol'])
+            runs=lead_runs.get(row['symbol'],{})
+            date=row.get('scan_date') if mode=='Potent' else max(runs,default=None)
+            row['lead_days']=runs.get(date) or None if row.get('group')=='Lead' else None
             row.update(assessments.get(row['symbol'],dict(setup_status='日K获取失败',setup_reason=(attempts or {}).get('errors',{}).get(row['symbol']) or chart_errors.get(row['symbol'],'缺少有效历史数据'),setup_tier=9)))
             return {key:row.get(key) for key in FIELDS}
         preset['current']=[project(r) for r in preset['current']]

@@ -9,7 +9,7 @@ const columnDefinitions=[
 ["entry_asof", "结构依据日期", "结构截至此日；下一根完整日K只用于检查状态。"],
 ["entry_state", "触发状态", "已突破/失效按完整日高低价判断；同日双触及不推断先后。"],
 ["entry_basis", "候选判断说明", "结构日期、检查日期及辅助规则边界。"],
- ['symbol','代码','交易所证券代码。'],['security_name','公司名称','数据源提供的证券名称。'],['group','均线组','Lead：EMA9>EMA21>EMA50；Lag相反；Mediocre：EMA21高于或低于另外两线。'],
+ ['symbol','代码','交易所证券代码。'],['security_name','公司名称','数据源提供的证券名称。'],['group','均线组','Lead：EMA9>EMA21>EMA50；Lag相反；Mediocre：EMA21高于或低于另外两线。'],['lead_days','连续多头天数','连续满足 EMA9 > EMA21 > EMA50 的完整交易日数，首日计1；非Lead或未能核对显示—。'],
  ['close','收盘 / 快照价','Potent使用完整日收盘；其余使用所发布扫描快照价格。不是实时行情。'],['change','涨跌 %','选股快照中的日涨跌百分比。'],['setup_status','辅助阶段','完整日K结构观察阶段，属于自定辅助规则，并非Martin本人公式。'],
  ['setup_distance','距突破位 %','（结构参考突破位÷完整日收盘−1）×100%。'],['setup_trigger','参考突破位','最新完整日高点，或仅按三日收紧识别时的三日最高价。'],['setup_invalidation','参考失效位','最新完整日低点，或仅按三日收紧识别时的三日最低价。不是固定止损指令。'],['setup_risk','参考风险 %','（突破位−失效位）÷突破位×100%，未含滑点和费用。'],
  ['market_cap_basic','市值 / 亿美元','Potent上一日市值可能按当前股数和历史价格回推估算。'],['Volatility.W','周波动 %','数据源周波动率，不等于ADR20；Potent门槛>3.5%。'],['Value.Traded','日成交额 / 百万','Potent为完整日成交额；其余模式为当日扫描快照。'],['average_volume_10d_calc','10日均量 / 万股','十日平均成交股数。'],['Value.Traded|1W','周成交额 / 百万','Leader门槛>300百万美元。'],['Perf.1M','月表现 %','数据源近一月价格表现；Leader默认按它降序。'],['premarket_change','盘前涨幅 %','Premarket默认按它降序，没有额外最小涨幅限制。'],['scan_date','选股日期','选股快照所依据的日期。'],['setup_asof','分析日线日期','辅助参考位所使用的最后完整日线日期；可能与扫描日期不同。'],['history_last_seen','最后入选日期','最后一次记录该证券通过当前模式的UTC日期，不是实际移出日期。'],['sector','行业','数据源行业分类。'],['setup_reason','辅助判断依据','结构阶段的判断理由，或未能分析的具体原因。']
@@ -17,8 +17,9 @@ const columnDefinitions=[
 let snapshot,mode='Potent',historyView=false,sort=null,selected=null,shown=[],dragged=null;
 let order=columnDefinitions.map(c=>c[0]);
 try{const saved=JSON.parse(localStorage.getItem('martin-column-order'));if(Array.isArray(saved)&&saved.every(x=>typeof x==='string'))order=[...new Set([...saved.filter(k=>order.includes(k)),...order])];}catch{}
+order=order.filter(k=>k!=='lead_days');order.splice(order.indexOf('group')+1,0,'lead_days');
 const fmt=(v,d=2)=>typeof v==='number'&&Number.isFinite(v)?v.toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d}):'—';
-function valueText(row,key){const scale={'market_cap_basic':1e8,'Value.Traded':1e6,'average_volume_10d_calc':1e4,'Value.Traded|1W':1e6};const v=row[key];if(key==='history_last_seen')return v?String(v).slice(0,10):'—';return typeof v==='number'?fmt(v/(scale[key]||1)):v??'—';}
+function valueText(row,key){if(key==='lead_days')return row[key]??'—';const scale={'market_cap_basic':1e8,'Value.Traded':1e6,'average_volume_10d_calc':1e4,'Value.Traded|1W':1e6};const v=row[key];if(key==='history_last_seen')return v?String(v).slice(0,10):'—';return typeof v==='number'?fmt(v/(scale[key]||1)):v??'—';}
 function node(tag,text,cls){const el=document.createElement(tag);if(text!==undefined)el.textContent=text;if(cls)el.className=cls;return el;}
 function sortedRows(rows){
  if(!sort)return rows;
@@ -30,6 +31,7 @@ function render(){
  const query=$('search').value.trim().toLowerCase();
  rows=rows.filter(r=>(!query||`${r.symbol} ${r.security_name}`.toLowerCase().includes(query))&&($('group').value==='全部'||r.group===$('group').value)&&(!$('small').checked||Number.isFinite(r.market_cap_basic)&&r.market_cap_basic<5e9));
  if($('priority').value==='setup'&&!historyView&&!sort)rows=[...rows].sort((a,b)=>(a.setup_tier??9)-(b.setup_tier??9)||(a.setup_sort_distance??Infinity)-(b.setup_sort_distance??Infinity)||(a.setup_risk??Infinity)-(b.setup_risk??Infinity)||a.symbol.localeCompare(b.symbol));
+ if(mode==='Potent'&&!historyView&&!sort&&$('priority').value==='original')rows=[...rows].sort((a,b)=>(a.lead_days??Infinity)-(b.lead_days??Infinity));
  shown=sortedRows(rows);
  $('count').textContent=shown.length.toLocaleString();$('modeName').textContent=mode;$('listTitle').textContent=`${mode} ${historyView?'历史移出名单':'观察名单'}`;$('viewBadge').textContent=mode==='自选池'?'本机自选':historyView?'历史快照':'当前候选';$('history').textContent=historyView?'显示当前选择股票':'历史移出名单';$('rule').textContent=historyView?'历史入选快照，非当前行情。未入选也可能因字段缺失；辅助参考位请重新复核。':preset.rule;
  for(const b of $('modes').children)b.classList.toggle('active',b.dataset.mode===mode);
