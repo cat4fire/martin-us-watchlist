@@ -1,1 +1,1 @@
-{"limit":"all","attempted":1277,"successful":1276,"failed":1,"required_date":"2026-11-12","errors":{"ORCL$D":"历史行情OHLCV无效：2026-11-12 O=39.66999816894531 H=41.1349983215332 L=40.0 C=40.869998931884766"},"cached":0,"incremental":1267,"initial":6}
+{"limit":"all","attempted":1305,"successful":1303,"failed":2,"required_date":"2026-11-13","errors":{"BWXT":"stocks: Expecting value: line 2 column 1 (char 2)；etf: Nasdaq未返回对应股票的历史行情","CMS":"stocks: Expecting value: line 2 column 1 (char 2)；etf: Nasdaq未返回对应股票的历史行情"},"cached":0,"incremental":1287,"initial":10}
