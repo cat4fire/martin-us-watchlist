@@ -8,6 +8,7 @@ on:
     paths-ignore: ['state/**', 'README.md']
 permissions:
   contents: write
+  actions: read
   pages: write
   id-token: write
 concurrency:
@@ -81,9 +82,21 @@ jobs:
           name: github-pages-${{ github.run_id }}-${{ github.run_attempt }}
           path: dist
           retention-days: 1
+      - name: Wait for Pages artifact to become visible
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_NAME: github-pages-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          for attempt in {1..12}; do
+            if names=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts" --paginate --jq '.artifacts[] | select(.expired == false) | .name') && grep -Fxq "$ARTIFACT_NAME" <<< "$names"; then
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Pages artifact not visible: $ARTIFACT_NAME" >&2
+          exit 1
       - name: Deploy shared snapshot
         id: deploy
         uses: actions/deploy-pages@v4
         with:
           artifact_name: github-pages-${{ github.run_id }}-${{ github.run_attempt }}
-          timeout: 1200000
