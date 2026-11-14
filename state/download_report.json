@@ -1,1 +1,1 @@
-{"limit":"all","attempted":1305,"successful":1303,"failed":2,"required_date":"2026-11-13","errors":{"BWXT":"stocks: Expecting value: line 2 column 1 (char 2)；etf: Nasdaq未返回对应股票的历史行情","CMS":"stocks: Expecting value: line 2 column 1 (char 2)；etf: Nasdaq未返回对应股票的历史行情"},"cached":0,"incremental":1287,"initial":10}
+{"limit":"all","attempted":1305,"successful":1305,"failed":0,"required_date":"2026-11-13","errors":{},"cached":1303,"incremental":2,"initial":0}
