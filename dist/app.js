@@ -99,7 +99,7 @@ function mountTradingView(row){
  $('tvExternal').href='https://www.tradingview.com/chart/?symbol='+encodeURIComponent(symbol);
  $('tvNotice').textContent=row.symbol+' · TradingView独立行情，可能有延迟；EMA按当前周期计算。可在指标设置中核对9/21/50参数。';
  const container=node('div');container.id='tvEmbeddedChart';container.style.height='100%';mount.append(container);
- const create=()=>{if(!tvEnabled||row!==tvRow||!container.isConnected)return;try{new TradingView.widget({container_id:container.id,autosize:true,symbol,interval:$('tvInterval').value,timezone:'America/New_York',theme:'dark',style:'1',locale:'zh_CN',allow_symbol_change:false,hide_side_toolbar:false,enable_publishing:false,studies:[{id:'MAExp@tv-basicstudies',inputs:{length:9}},{id:'MAExp@tv-basicstudies',inputs:{length:21}},{id:'MAExp@tv-basicstudies',inputs:{length:50}},{id:'Supertrend@tv-basicstudies',inputs:{atrPeriod:10,factor:3}}]});}catch(error){$('tvNotice').textContent='TradingView加载失败，可切回本地图表或在新窗口打开。';}};
+ const create=()=>{if(!tvEnabled||row!==tvRow||!container.isConnected)return;try{new TradingView.widget({container_id:container.id,autosize:true,symbol,interval:$('tvInterval').value,timezone:'America/New_York',theme:'dark',style:'1',locale:'zh_CN',allow_symbol_change:false,hide_side_toolbar:false,enable_publishing:false,studies_overrides:{'moving average exponential.0.plot.color':'#50a0e8','moving average exponential.1.plot.color':'#e5a956','moving average exponential.2.plot.color':'#ae86ce'},studies:[{id:'MAExp@tv-basicstudies',inputs:{length:9}},{id:'MAExp@tv-basicstudies',inputs:{length:21}},{id:'MAExp@tv-basicstudies',inputs:{length:50}},{id:'Supertrend@tv-basicstudies',inputs:{atrPeriod:10,factor:3}}]});}catch(error){$('tvNotice').textContent='TradingView加载失败，可切回本地图表或在新窗口打开。';}};
  if(window.TradingView){create();return;}
  const script=document.createElement('script');script.src='https://s3.tradingview.com/tv.js';script.onload=create;script.onerror=()=>{$('tvNotice').textContent='TradingView未能加载，请检查网络；本地图表仍可使用。';};container.append(script);
 }
@@ -120,9 +120,10 @@ function installWatchlist(){
  const rebuild=()=>{pool.current=codes.map(symbol=>available.get(symbol)||{symbol,security_name:'自选代码·未发布行情',entry_state:'未发布日K',entry_basis:'当前网站无此代码的行情；需由维护者加入云端下载名单，浏览器添加不会自动上传。'});};rebuild();
  const controls=node('div');controls.style.cssText='display:flex;gap:8px;padding:8px;flex-wrap:wrap';
  const input=node('input');input.placeholder='自选代码，例如 TSLA NVDA';input.setAttribute('aria-label','添加自选股票代码');
- const save=()=>{try{localStorage.setItem(key,JSON.stringify(codes));}catch{alert('浏览器未允许保存，关闭后名单可能丢失。');}rebuild();mode='自选池';historyView=false;sort=null;render();for(const b of $('modes').children)if(b.dataset.mode==='自选池')b.querySelector('small').textContent=codes.length;};
+ const save=(stay=false)=>{try{localStorage.setItem(key,JSON.stringify(codes));}catch{alert('浏览器未允许保存，关闭后名单可能丢失。');}rebuild();if(!stay){mode='自选池';historyView=false;sort=null;render();}for(const b of $('modes').children)if(b.dataset.mode==='自选池')b.querySelector('small').textContent=codes.length;};
  const add=node('button','添加自选');add.title='输入代码，以空格或逗号分隔。未知代码可保存但没有已发布日K。';add.onclick=()=>{const items=input.value.toUpperCase().split(/[\s,，;；]+/).filter(Boolean);if(items.some(v=>! /^[A-Z0-9.$^/\-]{1,20}$/.test(v))){alert('请填写有效的股票代码。');return;}codes=[...new Set([...codes,...items])];input.value='';save();};
  input.addEventListener('keydown',e=>{if(e.key==='Enter')add.click();});
  const remove=node('button','移除当前自选');remove.title='从个人自选名单中移除当前选中的股票。';remove.onclick=()=>{if(mode!=='自选池'||!selected)return;codes=codes.filter(v=>v!==selected);save();};
+ $('addSelectedWatch').onclick=()=>{const row=shown.find(r=>r.symbol===selected);if(!row){$('watchFeedback').textContent='请先选择一只股票';return;}if(codes.includes(row.symbol)){$('watchFeedback').textContent=row.symbol+' 已在自选池';return;}codes.push(row.symbol);save(true);$('watchFeedback').textContent=row.symbol+' 已添加';};
  controls.append(input,add,remove);$('modes').after(controls);
 }
