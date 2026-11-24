@@ -146,3 +146,30 @@ def supertrend_annotations(rows,length=10,factor=3):
         if i>length-1 and new!=direction:events.append(dict(date=bar['date'],kind='buy' if new else 'sell',price=bar['close'],reason='Supertrend ATR10×3，日线收盘确认翻转；标记价为收盘价，不是提前可成交价'))
         previous_line=line;direction=new
     return dict(events=events,lines=lines,stops=[],notice='传统Supertrend：ATR10、倍数3；收盘确认趋势翻转，非原结构策略买卖点。')
+
+
+def simulate_lead_position(rows):
+    result=dict(sim_status='未形成Lead',sim_start=None,sim_buy_date=None,sim_buy=None,sim_qty=None,sim_sell_date=None,sim_sell=None,sim_pnl=None)
+    start=None;was=False
+    for i,r in enumerate(rows):
+        lead=r['ema9']>r['ema21']>r['ema50']
+        if i>=50 and lead and not was:start=i
+        was=lead
+    if start is None:return result
+    result['sim_start']=rows[start]['date']
+    if start+1>=len(rows):return dict(result,sim_status='等待次日开盘')
+    buy=rows[start+1]['open'];qty=int(10000//buy)
+    result.update(sim_buy_date=rows[start+1]['date'],sim_buy=buy,sim_qty=qty)
+    if not qty:return dict(result,sim_status='不足购买1股')
+    atr=None;trs=[];stops={}
+    for i,r in enumerate(rows):
+        prev=rows[i-1]['close'] if i else r['close'];trs.append(max(r['high']-r['low'],abs(r['high']-prev),abs(r['low']-prev)))
+        if i<21:continue
+        atr=sum(trs[-22:])/22 if atr is None else (21*atr+trs[-1])/22
+        stops[i]=max(x['high'] for x in rows[i-21:i+1])-3*atr
+    for i in range(start+1,len(rows)):
+        stop=stops.get(i-1)
+        if stop is not None and rows[i]['low']<=stop:
+            sell=min(rows[i]['open'],stop)
+            return dict(result,sim_status='已卖出',sim_sell_date=rows[i]['date'],sim_sell=sell,sim_pnl=qty*(sell-buy))
+    return dict(result,sim_status='持仓中',sim_sell=rows[-1]['close'],sim_pnl=qty*(rows[-1]['close']-buy))

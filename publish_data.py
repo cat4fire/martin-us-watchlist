@@ -14,11 +14,11 @@ sys.path.insert(0,str(BASE/'scanner_core'))
 from martin_scans import RULES,screen,fetch_snapshot,merge_universe
 from market_scan import load_universe
 from history_data import load_history,prepare,yahoo_symbol
-from entry_priority import assess_setup,trade_annotations,supertrend_annotations
+from entry_priority import assess_setup,trade_annotations,supertrend_annotations,simulate_lead_position
 from candidate_history import record_candidates
 from incremental_history import update_history
 
-FIELDS=('entry_structure','entry_trigger','entry_invalidation','entry_distance','entry_risk','entry_asof','entry_state','entry_basis','symbol','ticker','security_name','group','lead_days','close','change','market_cap_basic','Volatility.W','Value.Traded','average_volume_10d_calc','Value.Traded|1W','Perf.1M','premarket_change','scan_date','sector','history_last_seen','setup_status','setup_distance','setup_trigger','setup_invalidation','setup_risk','setup_asof','setup_reason','setup_tier','setup_sort_distance','chart')
+FIELDS=('sim_status','sim_start','sim_buy_date','sim_buy','sim_qty','sim_sell_date','sim_sell','sim_pnl','entry_structure','entry_trigger','entry_invalidation','entry_distance','entry_risk','entry_asof','entry_state','entry_basis','symbol','ticker','security_name','group','lead_days','close','change','market_cap_basic','Volatility.W','Value.Traded','average_volume_10d_calc','Value.Traded|1W','Perf.1M','premarket_change','scan_date','sector','history_last_seen','setup_status','setup_distance','setup_trigger','setup_invalidation','setup_risk','setup_asof','setup_reason','setup_tier','setup_sort_distance','chart')
 
 
 def extra_securities():
@@ -97,6 +97,7 @@ def build(report,cache,output,state,today=None,attempts=None,require_all=False):
             write_json(output/relative,chart)
             charts[symbol]=relative
             assessment=assess_setup(dict(raw,rows=rows,warning=stale_warning),today)
+            assessment.update(simulate_lead_position(rows))
             # Expose the same normalized distance used by desktop helper sorting.
             adr=assessment.get('setup_adr') or assessment.get('setup_adr20')
             if adr and assessment.get('setup_distance') is not None:assessment['setup_sort_distance']=assessment['setup_distance']/adr
