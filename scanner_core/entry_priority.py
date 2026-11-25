@@ -149,27 +149,27 @@ def supertrend_annotations(rows,length=10,factor=3):
 
 
 def simulate_lead_position(rows):
-    result=dict(sim_status='未形成Lead',sim_start=None,sim_buy_date=None,sim_buy=None,sim_qty=None,sim_sell_date=None,sim_sell=None,sim_pnl=None)
-    start=None;was=False
+    initial=10000.;cash=initial;position=None;history=[];pending=None;was=False;atr=None;trs=[];stops={};latest=None
     for i,r in enumerate(rows):
+        previous=rows[i-1]['close'] if i else r['close']
+        trs.append(max(r['high']-r['low'],abs(r['high']-previous),abs(r['low']-previous)))
+        if i>=21:
+            atr=sum(trs[-22:])/22 if atr is None else (21*atr+trs[-1])/22
+            stops[i]=max(x['high'] for x in rows[i-21:i+1])-3*atr
+        if position is None and pending is not None:
+            if latest is not None:history.append(dict(latest))
+            price=r['open'];position=dict(sim_status='持仓中',sim_start=pending,sim_buy_date=r['date'],sim_buy=price,sim_qty=cash/price,sim_capital=cash,sim_sell_date=None,sim_sell=None)
+            latest=position;pending=None
+        if position is not None:
+            stop=stops.get(i-1)
+            if stop is not None and r['low']<=stop:
+                sell=min(r['open'],stop);cash=position['sim_qty']*sell
+                latest=dict(position,sim_status='已卖出',sim_sell_date=r['date'],sim_sell=sell,sim_trade_pnl=cash-position['sim_capital'])
+                position=None
         lead=r['ema9']>r['ema21']>r['ema50']
-        if i>=50 and lead and not was:start=i
+        if i>=50 and lead and not was and position is None:pending=r['date']
         was=lead
-    if start is None:return result
-    result['sim_start']=rows[start]['date']
-    if start+1>=len(rows):return dict(result,sim_status='等待次日开盘')
-    buy=rows[start+1]['open'];qty=int(10000//buy)
-    result.update(sim_buy_date=rows[start+1]['date'],sim_buy=buy,sim_qty=qty)
-    if not qty:return dict(result,sim_status='不足购买1股')
-    atr=None;trs=[];stops={}
-    for i,r in enumerate(rows):
-        prev=rows[i-1]['close'] if i else r['close'];trs.append(max(r['high']-r['low'],abs(r['high']-prev),abs(r['low']-prev)))
-        if i<21:continue
-        atr=sum(trs[-22:])/22 if atr is None else (21*atr+trs[-1])/22
-        stops[i]=max(x['high'] for x in rows[i-21:i+1])-3*atr
-    for i in range(start+1,len(rows)):
-        stop=stops.get(i-1)
-        if stop is not None and rows[i]['low']<=stop:
-            sell=min(rows[i]['open'],stop)
-            return dict(result,sim_status='已卖出',sim_sell_date=rows[i]['date'],sim_sell=sell,sim_pnl=qty*(sell-buy))
-    return dict(result,sim_status='持仓中',sim_sell=rows[-1]['close'],sim_pnl=qty*(rows[-1]['close']-buy))
+    value=position['sim_qty']*rows[-1]['close'] if position else cash
+    if position:latest=dict(position,sim_sell=rows[-1]['close'],sim_trade_pnl=value-position['sim_capital'])
+    latest=latest or dict(sim_status='等待次日开盘' if pending else '未形成Lead',sim_start=pending)
+    return dict(latest,sim_pnl=value-initial,sim_return=(value/initial-1)*100,sim_value=value,sim_initial=initial,sim_history=history,sim_pending=pending,sim_asof=rows[-1]['date'] if rows else None)
