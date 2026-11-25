@@ -35,7 +35,7 @@ function render(){
  if(mode==='Potent'&&!historyView&&!sort&&$('priority').value==='original')rows=[...rows].sort((a,b)=>(a.lead_days??Infinity)-(b.lead_days??Infinity));
  if(mode==='模拟股票'&&!sort)rows=[...rows].sort((a,b)=>(b.sim_return??-Infinity)-(a.sim_return??-Infinity));
  shown=sortedRows(rows);
- $('simSummary').hidden=mode!=='模拟股票';if(mode==='模拟股票'){const valid=all.filter(r=>Number.isFinite(r.sim_value));const total=valid.reduce((n,r)=>n+r.sim_value,0),base=valid.length*10000;$('simSummary').textContent=`总收益 $${fmt(total-base)}　总投资额 $${fmt(base)}　总收益率 ${base?fmt((total/base-1)*100):'—'}%　已计 ${valid.length}/${all.length} 只（缺行情不计入）`;}
+ $('simSummary').hidden=mode!=='模拟股票';if(mode==='模拟股票'){const valid=all.filter(r=>Number.isFinite(r.sim_value));const total=valid.reduce((n,r)=>n+r.sim_value,0),base=valid.length*10000;$('simSummary').textContent=`2026-11-01起模拟　总收益 $${fmt(total-base)}　总投资额 $${fmt(base)}　总收益率 ${base?fmt((total/base-1)*100):'—'}%　已计 ${valid.length}/${all.length} 只（缺行情不计入）`;}
  $('count').textContent=shown.length.toLocaleString();$('modeName').textContent=mode;$('listTitle').textContent=`${mode} ${historyView?'历史移出名单':'观察名单'}`;$('viewBadge').textContent=mode==='自选池'?'本机自选':historyView?'历史快照':'当前候选';$('history').textContent=historyView?'显示当前选择股票':'历史移出名单';$('rule').textContent=historyView?'历史入选快照，非当前行情。未入选也可能因字段缺失；辅助参考位请重新复核。':preset.rule;
  for(const b of $('modes').children)b.classList.toggle('active',b.dataset.mode===mode);
  const head=$('headings');head.replaceChildren();
@@ -121,7 +121,7 @@ function installWatchlist(){
  const available=new Map();for(const preset of Object.values(snapshot.modes))for(const row of [...preset.history,...preset.current])available.set(row.symbol,row);
  for(const row of snapshot.watchlist||[])available.set(row.symbol,row);
  let simulations;try{simulations=JSON.parse(localStorage.getItem('martin-simulations-v1')||'null');}catch{}if(!Array.isArray(simulations))simulations=["TSLA", "CBOE", "TARS", "EXTR", "ZETA", "MWH", "GEO", "CGON", "SAIL", "EWTX", "FROG", "DUOL", "ADPT", "XMTR", "AXGN", "ORKA", "TIGO", "MRX", "ARMK", "SKYA", "CAKE", "TUNTSK", "ATEN", "INSM"];
- const simPool={rule:'每只初始1万美元，形成Lead后次日开盘全额投入（模拟碎股）；吊灯22×3ATR当日触及退出，前日线已知；跳空按开盘。卖出资金逐轮全额复投，不计费用。历史按已发布日线重建。',current:[],history:[],missing:0};snapshot.modes['模拟股票']=simPool;
+ const simPool={rule:'2026-11-01起，每只初始1万美元；此前只热身，不承接旧仓，期间新形成Lead后次日开盘全额投入（模拟碎股）；吊灯22×3ATR当日触及退出，前日线已知；跳空按开盘。卖出资金逐轮全额复投，不计费用。历史按已发布日线重建。',current:[],history:[],missing:0};snapshot.modes['模拟股票']=simPool;
  const rebuildSim=()=>{simPool.current=simulations.map(symbol=>available.get(symbol)||{symbol,sim_status:'未发布行情／代码待核对'});};rebuildSim();
  $('addSimulation').onclick=()=>{if(!selected)return;if(!simulations.includes(selected))simulations.push(selected);try{localStorage.setItem('martin-simulations-v1',JSON.stringify(simulations));}catch{}rebuildSim();$('watchFeedback').textContent=selected+' 已添加模拟';for(const b of $('modes').children)if(b.dataset.mode==='模拟股票')b.querySelector('small').textContent=simulations.length;};
  const pool={rule:'个人自选，仅保存于本浏览器；不是策略筛选结果。仅网站已发布的股票有日K。',current:[],history:[],missing:0};snapshot.modes['自选池']=pool;delete snapshot.modes['模拟股票'];snapshot.modes['模拟股票']=simPool;

@@ -148,7 +148,7 @@ def supertrend_annotations(rows,length=10,factor=3):
     return dict(events=events,lines=lines,stops=[],notice='传统Supertrend：ATR10、倍数3；收盘确认趋势翻转，非原结构策略买卖点。')
 
 
-def simulate_lead_position(rows):
+def simulate_lead_position(rows,start_date="2026-11-01"):
     initial=10000.;cash=initial;position=None;history=[];pending=None;was=False;atr=None;trs=[];stops={};latest=None
     for i,r in enumerate(rows):
         previous=rows[i-1]['close'] if i else r['close']
@@ -156,6 +156,9 @@ def simulate_lead_position(rows):
         if i>=21:
             atr=sum(trs[-22:])/22 if atr is None else (21*atr+trs[-1])/22
             stops[i]=max(x['high'] for x in rows[i-21:i+1])-3*atr
+        if r['date']<start_date:
+            was=r['ema9']>r['ema21']>r['ema50']
+            continue
         if position is None and pending is not None:
             if latest is not None:history.append(dict(latest))
             price=r['open'];position=dict(sim_status='持仓中',sim_start=pending,sim_buy_date=r['date'],sim_buy=price,sim_qty=cash/price,sim_capital=cash,sim_sell_date=None,sim_sell=None)
